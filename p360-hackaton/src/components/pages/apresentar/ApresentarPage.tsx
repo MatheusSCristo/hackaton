@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import {
   Badge,
@@ -44,6 +44,7 @@ import { useAula } from "@/hooks/useAulas";
 import { useBlocos } from "@/hooks/useBlocos";
 import {
   useCriarSessao,
+  useEncerrarBloco,
   useEncerrarSessao,
   useLiberarBloco,
   useSessaoAtual,
@@ -90,6 +91,8 @@ export default function ApresentarPage() {
   const criarSessao = useCriarSessao(aulaId);
   const liberar = useLiberarBloco(aulaId);
   const liberarCaso = useLiberarCaso(aulaId);
+  const encerrarBloco = useEncerrarBloco(aulaId);
+  const encerrarCaso = useEncerrarCaso(aulaId);
   const encerrarSessao = useEncerrarSessao(aulaId);
 
   const preparar = usePrepararAula(aulaId);
@@ -123,9 +126,60 @@ export default function ApresentarPage() {
     liberar.mutate({ sessaoId: sessao.sessaoId, blocoId: alvo.id });
   };
 
-  const irPara = (passo: number) => {
+  /**
+   * Finalizador que o controle da etapa registra, para o que só ele sabe fazer.
+   *
+   * A enquete é o caso que obriga isso: encerrar a sessão dela é um `emit` no
+   * socket do poll360, que vive dentro do `ControleEnquete`. O pai não tem esse
+   * socket, então quem sabe fechar se anuncia.
+   */
+  const finalizadorRef = useRef<null | (() => void | Promise<void>)>(null);
+  const registrarFinalizador = useCallback(
+    (fn: null | (() => void | Promise<void>)) => {
+      finalizadorRef.current = fn;
+    },
+    [],
+  );
+
+  /**
+   * Fecha a etapa que está saindo do ar.
+   *
+   * Vale principalmente pelo caso clínico: encerrar é o que dispara a **coleta
+   * dos dados da turma** e o diagnóstico. Sem isso, avançar de etapa perdia a
+   * aula inteira do ponto de vista de dados — o caso ficava aberto e nada era
+   * agregado. Nos outros blocos, encerrar tira a atividade da sala do aluno.
+   */
+  const finalizarEtapa = async (indice: number) => {
+    const atual = sequencia[indice];
+    if (!atual || !sessao) return;
+
+    try {
+      await finalizadorRef.current?.();
+    } catch {
+      // Falha ao fechar não pode travar a aula — o professor precisa seguir.
+    }
+
+    const sessaoId = sessao.sessaoId;
+    if (atual.tipo === "caso") {
+      // Só se estiver no ar: encerrar duas vezes reprocessaria a coleta.
+      const noAr =
+        sessao.blocoAtual?.id === atual.id && sessao.estadoAtual === "liberado";
+      if (noAr) encerrarCaso.mutate({ blocoId: atual.id, sessaoId });
+      return;
+    }
+    encerrarBloco.mutate({ sessaoId, blocoId: atual.id });
+  };
+
+  const irPara = async (passo: number) => {
     const alvo = sequencia[passo];
     if (!alvo) return;
+
+    // `iniciar()` chama irPara(passo atual): ali não há etapa anterior a fechar.
+    if (passo !== estado.passo) {
+      await finalizarEtapa(estado.passo);
+      registrarFinalizador(null);
+    }
+
     atualizar({ passo, slide: 0, projetarDados: false });
     liberarEtapa(alvo);
   };
@@ -350,6 +404,7 @@ export default function ApresentarPage() {
                 estado={estado}
                 atualizar={atualizar}
                 sessaoId={sessao?.sessaoId}
+                registrarFinalizador={registrarFinalizador}
               />
               {bloco && (
                 <AjustesDaEtapa
@@ -384,7 +439,10 @@ export default function ApresentarPage() {
                 variant="solid"
                 icon={Flag}
                 disabled={estado.finalizada}
-                onClick={() => {
+                onClick={async () => {
+                  // A última etapa também precisa fechar: é dela que sai a
+                  // coleta, se a aula terminar no caso clínico.
+                  await finalizarEtapa(estado.passo);
                   atualizar({ finalizada: true, projetarDados: false });
                   if (sessao) encerrarSessao.mutate(sessao.sessaoId);
                 }}
@@ -574,6 +632,8 @@ interface EtapaProps {
   estado: EstadoApresentacao;
   atualizar: (patch: Partial<EstadoApresentacao>) => void;
   sessaoId: string | undefined;
+  /** O controle registra aqui como fechar a etapa quando ela sair do ar. */
+  registrarFinalizador: (fn: null | (() => void | Promise<void>)) => void;
 }
 
 function EtapaAtual({
@@ -582,6 +642,7 @@ function EtapaAtual({
   estado,
   atualizar,
   sessaoId,
+  registrarFinalizador,
 }: EtapaProps) {
   if (!bloco) return <Aviso texto="Etapa não encontrada." />;
 
@@ -609,6 +670,7 @@ function EtapaAtual({
         projetarDados={estado.projetarDados}
         onProjetar={(v) => atualizar({ projetarDados: v })}
         onEspelhar={(enquete) => atualizar({ enquete })}
+        registrarFinalizador={registrarFinalizador}
       />
     );
   }
@@ -746,8 +808,13 @@ function ControleCaso({
               sessaoId && encerrar.mutate({ blocoId: bloco.id, sessaoId })
             }
           >
-            Encerrar e coletar
+            Encerrar e coletar agora
           </CustomButton>
+        )}
+        {liberado && (
+          <Text fontSize="xs" color="gray.500">
+            Avançar de etapa já encerra e coleta.
+          </Text>
         )}
         {!liberado && !agregado && sessaoId && (
           <Text fontSize="xs" color="gray.500">
@@ -810,12 +877,14 @@ function ControleEnquete({
   projetarDados,
   onProjetar,
   onEspelhar,
+  registrarFinalizador,
 }: {
   aulaId: string;
   bloco: Bloco;
   projetarDados: boolean;
   onProjetar: (v: boolean) => void;
   onEspelhar: (e: EnqueteProjecao | null) => void;
+  registrarFinalizador: (fn: null | (() => void | Promise<void>)) => void;
 }) {
   const publicar = usePublicarEnquete(aulaId);
   const iniciarQuestao = useIniciarEnquete(aulaId);
@@ -869,6 +938,19 @@ function ControleEnquete({
     live.iniciar();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pin, indice, live.ehSpeaker, live.pollAtivo]);
+
+  // Fechar a enquete é um emit no socket do poll360, que só existe aqui. O pai
+  // chama isto ao sair da etapa; sem isso a sessão do poll360 ficava aberta e a
+  // turma continuava vendo a última questão depois de a aula ter seguido.
+  useEffect(() => {
+    if (!pin) return;
+    registrarFinalizador(() => {
+      if (!live.encerrada) live.encerrarQuestao();
+      live.encerrarSessao();
+    });
+    return () => registrarFinalizador(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pin, live.encerrada]);
 
   const temProxima = indice + 1 < total;
 
