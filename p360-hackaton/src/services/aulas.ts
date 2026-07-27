@@ -15,6 +15,8 @@ export interface Aula {
   titulo: string;
   modo: string;
   casoTitulo: string | null;
+  /** Nome do arquivo (cru) da imagem do caso vinculado no storage legado — usar `buildFotoUrl` pra virar URL. */
+  casoImagem?: string | null;
   tema: string | null;
   publico: string | null;
   duracao: string | null;
@@ -81,4 +83,8 @@ export async function getAula(aulaId: string): Promise<Aula> {
 export async function criarAula(payload: CriarAulaPayload): Promise<Aula> {
   const { data } = await hackatonApi.post<Aula>("/api/aulas", payload);
   return data;
+}
+
+export async function removerAula(aulaId: string): Promise<void> {
+  await hackatonApi.delete(`/api/aulas/${aulaId}`);
 }

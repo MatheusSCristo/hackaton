@@ -1,8 +1,10 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from "@nestjs/common";
+import { Cron, CronExpression } from "@nestjs/schedule";
 import { randomInt } from "node:crypto";
 import type { SessaoAula } from "@prisma/client";
 
@@ -32,9 +34,35 @@ export interface EntrarResultado {
 const ALFABETO = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // sem I/O/0/1
 const TAMANHO_CODIGO = 6;
 
+/** Sessão sem nenhuma atividade (bloco liberado, participante entrando) por
+ * esse tempo é considerada abandonada — evita sala "ao vivo" pra sempre. */
+const LIMITE_INATIVIDADE_MS = 3 * 60 * 60 * 1000;
+
 @Injectable()
 export class SessaoService {
+  private readonly logger = new Logger(SessaoService.name);
+
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * Varredura periódica: encerra sozinho qualquer sessão `aguardando`/`ativa`
+   * sem atividade há mais de 3h — sem isso, uma sala esquecida aberta fica
+   * "ao vivo" indefinidamente.
+   */
+  @Cron(CronExpression.EVERY_10_MINUTES)
+  async fecharInativas(): Promise<void> {
+    const limite = new Date(Date.now() - LIMITE_INATIVIDADE_MS);
+    const { count } = await this.prisma.sessaoAula.updateMany({
+      where: {
+        status: { in: ["aguardando", "ativa"] },
+        updatedAt: { lt: limite },
+      },
+      data: { status: "encerrada", endedAt: new Date(), estadoAtual: null },
+    });
+    if (count > 0) {
+      this.logger.log(`${count} sessão(ões) encerrada(s) por inatividade.`);
+    }
+  }
 
   /** Cria (ou reaproveita) a sessão ao vivo de uma aula do professor. */
   async criar(
@@ -79,7 +107,22 @@ export class SessaoService {
       },
       orderBy: { createdAt: "desc" },
     });
-    return sessao ? this.estadoPorId(sessao.id) : null;
+    if (!sessao) return null;
+
+    // Checagem sob demanda, sem esperar a próxima varredura do cron: ao abrir
+    // o cockpit de uma aula com sessão abandonada há mais de 3h, ela já deve
+    // aparecer encerrada nesta mesma consulta.
+    const inativaHaMuitoTempo =
+      Date.now() - sessao.updatedAt.getTime() > LIMITE_INATIVIDADE_MS;
+    if (inativaHaMuitoTempo) {
+      await this.prisma.sessaoAula.update({
+        where: { id: sessao.id },
+        data: { status: "encerrada", endedAt: new Date(), estadoAtual: null },
+      });
+      return null;
+    }
+
+    return this.estadoPorId(sessao.id);
   }
 
   async estadoPorCodigo(codigo: string): Promise<EstadoSessaoDto> {

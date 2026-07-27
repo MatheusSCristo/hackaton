@@ -12,6 +12,7 @@ import { ClipboardList, PartyPopper, Stethoscope } from "lucide-react";
 import QRCode from "react-qr-code";
 
 import { BLOCO_META, momentoDoTipo } from "../aula/blocoMeta";
+import { PresentationRenderer } from "../aula/presentation";
 import { useApresentacaoSync } from "@/hooks/useApresentacaoSync";
 import type { EnqueteProjecao } from "@/hooks/useApresentacaoSync";
 import { useBlocos } from "@/hooks/useBlocos";
@@ -234,12 +235,17 @@ function Palco({
   );
 }
 
+/**
+ * Projeta o slide com o mesmo motor de renderização usado no cockpit/controle
+ * (`PresentationRenderer`) — evita duplicar a lógica de imagem de fundo
+ * (capa/fechamento) e imagem de tópico (slides de desenvolvimento) num
+ * terceiro lugar, que é o que causava essas imagens não aparecerem aqui.
+ */
 function ProjecaoSlides({ bloco, indice }: { bloco: Bloco; indice: number }) {
   const apresentacao = bloco.output?.apresentacao as Apresentacao | undefined;
   const slides = apresentacao?.slides ?? [];
-  const slide = slides[Math.min(indice, Math.max(0, slides.length - 1))];
 
-  if (!slide) {
+  if (!apresentacao || slides.length === 0) {
     return (
       <Palco>
         <Heading size="xl" color="whiteAlpha.800" textAlign="center">
@@ -249,59 +255,15 @@ function ProjecaoSlides({ bloco, indice }: { bloco: Bloco; indice: number }) {
     );
   }
 
-  const ehCapa = slide.role !== "development";
+  const slideIndex = Math.min(indice, slides.length - 1);
 
+  // Sem padding/maxW e sem o letterbox de 16:9 do preview normal: em tela
+  // cheia (F11) o slide precisa preencher o monitor inteiro, não sobrar
+  // borda preta em volta.
   return (
-    <Palco claro={!ehCapa}>
-      <Stack gap="6">
-        <Heading
-          size={{ base: "xl", md: "3xl" }}
-          color={ehCapa ? "white" : "gray.900"}
-          lineHeight="1.15"
-        >
-          {slide.title}
-        </Heading>
-
-        <Box w="72px" h="5px" bg="red.500" borderRadius="full" />
-
-        {slide.subtitle && (
-          <Text
-            fontSize={{ base: "lg", md: "2xl" }}
-            color={ehCapa ? "cyan.300" : "gray.500"}
-          >
-            {slide.subtitle}
-          </Text>
-        )}
-
-        {slide.content.length > 0 && (
-          <Stack gap="4" mt="2">
-            {slide.content.map((bullet, i) => (
-              <Flex key={i} gap="4" align="flex-start">
-                <Box
-                  w="10px"
-                  h="10px"
-                  mt="14px"
-                  flexShrink={0}
-                  borderRadius="full"
-                  bg="red.500"
-                />
-                <Text
-                  fontSize={{ base: "lg", md: "2xl" }}
-                  color="gray.700"
-                  lineHeight="1.45"
-                >
-                  {bullet}
-                </Text>
-              </Flex>
-            ))}
-          </Stack>
-        )}
-
-        <Text fontSize="sm" color={ehCapa ? "whiteAlpha.500" : "gray.400"}>
-          {Math.min(indice + 1, slides.length)} / {slides.length}
-        </Text>
-      </Stack>
-    </Palco>
+    <Box position="fixed" inset={0} w="100vw" h="100vh" bg="gray.900">
+      <PresentationRenderer presentation={apresentacao} slideIndex={slideIndex} fill />
+    </Box>
   );
 }
 

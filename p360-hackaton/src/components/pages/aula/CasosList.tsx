@@ -84,7 +84,7 @@ export default function CasosList({
 
   return (
     <Stack gap="3">
-      <SimpleGrid columns={{ base: 1, sm: 2, md: 3 }} gap="3">
+      <SimpleGrid columns={{ base: 2, sm: 3, md: 4, lg: 5 }} gap="3">
         {items.map((caso) => (
           <CasoCard
             key={caso.id}

@@ -16,6 +16,8 @@ export interface AulaDto {
   /** Id do caso no acervo legado (quando a aula parte de um caso). */
   casoLegacyId: number | null;
   casoTitulo: string | null;
+  /** Nome do arquivo de imagem do caso no storage legado (cru, sem URL montada — o front resolve com `VITE_STORAGE_URL`). */
+  casoImagem: string | null;
   tema: string | null;
   publico: string | null;
   duracao: string | null;

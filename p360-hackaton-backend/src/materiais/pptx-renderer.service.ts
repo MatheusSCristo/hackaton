@@ -1,12 +1,18 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
+import * as path from "path";
 import PptxGenJS from "pptxgenjs";
 
+import { roundImageCorners } from "./pptx-image-processor";
 import type { Apresentacao, Slide } from "./schemas";
+
+/** Imagem de fundo da capa/fechamento — portada do "Slide Generator". */
+const HERO_BACKGROUND_IMAGE_PATH = path.join(__dirname, "assets", "start-end-bg.png");
 
 /**
  * Tema visual portado do "Slide Generator" (paleta P360, 16:9, tipografia em
- * tiers para auto-fit). Sem as imagens do original: os tópicos ocupam a largura
- * inteira, o que mantém o layout equilibrado sem depender de banco de imagens.
+ * tiers para auto-fit). Slides de desenvolvimento com `visual.imageUrl`
+ * (resolvido pelo `ImageResolverService`) ganham uma imagem arredondada à
+ * direita; sem imagem, os tópicos ocupam a largura inteira.
  */
 const PALETA = {
   brandRed: "E4383E",
@@ -22,6 +28,11 @@ const LARGURA = 10;
 const ALTURA = 5.625;
 const MARGEM = 0.6;
 const LARGURA_TEXTO = LARGURA - MARGEM * 2;
+
+/** Coluna de imagem: 38% da largura útil, à direita. */
+const LARGURA_IMAGEM = LARGURA_TEXTO * 0.38;
+const LARGURA_TEXTO_COM_IMAGEM = LARGURA_TEXTO - LARGURA_IMAGEM - 0.35;
+const RAIO_IMAGEM = 0.12;
 
 /** Tamanhos em ordem decrescente: cai um tier quando o texto é longo. */
 const TIERS_TITULO = [34, 30, 26, 22];
@@ -39,10 +50,10 @@ function tierTitulo(texto: string): number {
  * Portado de `text-fit.ts` do original (mesma heurística de largura média de
  * caractere), sem a dependência de medir texto de verdade.
  */
-function tierCorpo(bullets: string[]): number {
+function tierCorpo(bullets: string[], larguraDisponivel: number): number {
   const alturaDisponivel = 3.1; // polegadas entre título e rodapé
   for (const tamanho of TIERS_CORPO) {
-    const charsPorLinha = Math.floor((LARGURA_TEXTO * 96) / (tamanho * 0.5));
+    const charsPorLinha = Math.floor((larguraDisponivel * 96) / (tamanho * 0.5));
     const linhas = bullets.reduce(
       (total, bullet) =>
         total + Math.max(1, Math.ceil(bullet.length / charsPorLinha)),
@@ -59,6 +70,8 @@ function tierCorpo(bullets: string[]): number {
 
 @Injectable()
 export class PptxRendererService {
+  private readonly logger = new Logger(PptxRendererService.name);
+
   async render(apresentacao: Apresentacao): Promise<Buffer> {
     const deck = new PptxGenJS();
     deck.defineLayout({ name: "P360", width: LARGURA, height: ALTURA });
@@ -66,13 +79,16 @@ export class PptxRendererService {
     deck.author = "Paciente 360";
     deck.title = apresentacao.title;
 
-    apresentacao.slides.forEach((slide, index) => {
+    // Sequencial (não Promise.all): a ordem de `deck.addSlide()` define a
+    // ordem final do PPTX.
+    for (let index = 0; index < apresentacao.slides.length; index++) {
+      const slide = apresentacao.slides[index];
       if (slide.role === "development") {
-        this.slideConteudo(deck, slide, index + 1, apresentacao.slides.length);
+        await this.slideConteudo(deck, slide, index + 1, apresentacao.slides.length);
       } else {
         this.slideCapa(deck, slide, apresentacao);
       }
-    });
+    }
 
     const saida = await deck.write({ outputType: "nodebuffer" });
     return saida as Buffer;
@@ -85,7 +101,7 @@ export class PptxRendererService {
     apresentacao: Apresentacao,
   ): void {
     const s = deck.addSlide();
-    s.background = { color: PALETA.title };
+    s.background = { path: HERO_BACKGROUND_IMAGE_PATH };
 
     const titulo = slide.title || apresentacao.title;
     s.addText(titulo, {
@@ -127,20 +143,23 @@ export class PptxRendererService {
     if (slide.speakerNotes) s.addNotes(slide.speakerNotes);
   }
 
-  /** Slide de desenvolvimento: título + tópicos em largura total. */
-  private slideConteudo(
+  /** Slide de desenvolvimento: título + tópicos, com imagem arredondada à direita quando houver. */
+  private async slideConteudo(
     deck: PptxGenJS,
     slide: Slide,
     numero: number,
     total: number,
-  ): void {
+  ): Promise<void> {
     const s = deck.addSlide();
     s.background = { color: PALETA.white };
+
+    const imagem = await this.prepararImagem(slide);
+    const larguraTexto = imagem ? LARGURA_TEXTO_COM_IMAGEM : LARGURA_TEXTO;
 
     s.addText(slide.title, {
       x: MARGEM,
       y: 0.45,
-      w: LARGURA_TEXTO,
+      w: larguraTexto,
       h: 0.8,
       fontFace: FONTE,
       fontSize: tierTitulo(slide.title),
@@ -162,7 +181,7 @@ export class PptxRendererService {
       s.addText(slide.subtitle, {
         x: MARGEM,
         y: 1.42,
-        w: LARGURA_TEXTO,
+        w: larguraTexto,
         h: 0.35,
         fontFace: FONTE,
         fontSize: 13,
@@ -179,15 +198,27 @@ export class PptxRendererService {
       {
         x: MARGEM,
         y: yTopicos,
-        w: LARGURA_TEXTO,
+        w: larguraTexto,
         h: ALTURA - yTopicos - 0.6,
         fontFace: FONTE,
-        fontSize: tierCorpo(slide.content),
+        fontSize: tierCorpo(slide.content, larguraTexto),
         color: PALETA.body,
         lineSpacingMultiple: 1.3,
         valign: "top",
       },
     );
+
+    if (imagem) {
+      const yImagem = 1.6;
+      const alturaImagem = ALTURA - yImagem - 0.6;
+      s.addImage({
+        data: imagem,
+        x: LARGURA - MARGEM - LARGURA_IMAGEM,
+        y: yImagem,
+        w: LARGURA_IMAGEM,
+        h: alturaImagem,
+      });
+    }
 
     s.addText(`${numero} / ${total}`, {
       x: LARGURA - MARGEM - 1.0,
@@ -201,5 +232,19 @@ export class PptxRendererService {
     });
 
     if (slide.speakerNotes) s.addNotes(slide.speakerNotes);
+  }
+
+  /** Arredonda a imagem já resolvida (data URI) para o box da coluna direita. */
+  private async prepararImagem(slide: Slide): Promise<string | null> {
+    const dataUri = slide.visual?.imageUrl;
+    if (!dataUri || !dataUri.startsWith("data:")) return null;
+
+    try {
+      const alturaImagem = ALTURA - 1.6 - 0.6;
+      return await roundImageCorners(dataUri, LARGURA_IMAGEM, alturaImagem, RAIO_IMAGEM);
+    } catch (error) {
+      this.logger.warn(`Falha ao processar imagem do slide "${slide.title}": ${String(error)}`);
+      return null;
+    }
   }
 }

@@ -1,13 +1,19 @@
 import {
+  Inject,
   Injectable,
   Logger,
   ServiceUnavailableException,
   UnprocessableEntityException,
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import Anthropic from "@anthropic-ai/sdk";
 
-const DEFAULT_MODEL = "claude-haiku-4-5";
+import {
+  isLlmConfigured,
+  LLM_PROVIDER,
+  LlmJsonSchema,
+  LlmProvider,
+} from "../llm/llm-provider.interface";
+
 const DEFAULT_N_PERGUNTAS = 5;
 const MAX_N_PERGUNTAS = 10;
 const MIN_OPCOES = 3;
@@ -55,102 +61,85 @@ const SYSTEM_PROMPT =
   "Não repita o texto de alternativas dentro da mesma questão. " +
   "Escreva TODO o conteúdo no idioma solicitado.";
 
-const GERAR_TOOL: Anthropic.Tool = {
-  name: TOOL_NAME,
-  description: "Registra as questões da enquete gerada para a aula.",
-  input_schema: {
-    type: "object",
-    properties: {
-      perguntas: {
-        type: "array",
-        description: "Questões da enquete, na ordem de aplicação.",
-        items: {
-          type: "object",
-          properties: {
-            enunciado: {
-              type: "string",
-              description: "Pergunta apresentada aos alunos.",
-            },
-            opcoes: {
-              type: "array",
-              description: `Alternativas (${MIN_OPCOES} a ${MAX_OPCOES}); exatamente uma com correta=true.`,
-              items: {
-                type: "object",
-                properties: {
-                  texto: { type: "string" },
-                  correta: { type: "boolean" },
-                  justificativa: {
-                    type: "string",
-                    description:
-                      "Por que esta alternativa está correta ou incorreta.",
-                  },
-                  pontos: {
-                    type: "integer",
-                    description: "Pontos da alternativa (0 para incorretas).",
-                  },
+const GERAR_SCHEMA: LlmJsonSchema = {
+  type: "object",
+  properties: {
+    perguntas: {
+      type: "array",
+      description: "Questões da enquete, na ordem de aplicação.",
+      items: {
+        type: "object",
+        properties: {
+          enunciado: {
+            type: "string",
+            description: "Pergunta apresentada aos alunos.",
+          },
+          opcoes: {
+            type: "array",
+            description: `Alternativas (${MIN_OPCOES} a ${MAX_OPCOES}); exatamente uma com correta=true.`,
+            items: {
+              type: "object",
+              properties: {
+                texto: { type: "string" },
+                correta: { type: "boolean" },
+                justificativa: {
+                  type: "string",
+                  description:
+                    "Por que esta alternativa está correta ou incorreta.",
                 },
-                required: ["texto", "correta", "justificativa", "pontos"],
+                pontos: {
+                  type: "integer",
+                  description: "Pontos da alternativa (0 para incorretas).",
+                },
               },
+              required: ["texto", "correta", "justificativa", "pontos"],
             },
           },
-          required: ["enunciado", "opcoes"],
         },
+        required: ["enunciado", "opcoes"],
       },
     },
-    required: ["perguntas"],
   },
+  required: ["perguntas"],
 };
 
 /**
- * Gera o conteúdo da enquete com Claude (saída estruturada por tool use
- * forçado). O resultado é sempre **rascunho**: o professor revisa antes de
- * publicar no poll360 — nunca publicamos automaticamente.
+ * Gera o conteúdo da enquete (Gemini com fallback Anthropic, saída
+ * estruturada). O resultado é sempre **rascunho**: o professor revisa antes
+ * de publicar no poll360 — nunca publicamos automaticamente.
  */
 @Injectable()
 export class EnqueteIaService {
   private readonly logger = new Logger(EnqueteIaService.name);
-  private readonly client: Anthropic | null;
-  private readonly model: string;
 
-  constructor(config: ConfigService) {
-    const apiKey = config.get<string>("ANTHROPIC_API_KEY");
-    this.model = config.get<string>("ANTHROPIC_MODEL") || DEFAULT_MODEL;
-    this.client = apiKey ? new Anthropic({ apiKey }) : null;
-    if (!this.client) {
-      this.logger.warn(
-        "ANTHROPIC_API_KEY ausente — geração de enquete indisponível (503).",
-      );
-    }
-  }
+  constructor(
+    private readonly config: ConfigService,
+    @Inject(LLM_PROVIDER) private readonly llmProvider: LlmProvider,
+  ) {}
 
   get enabled(): boolean {
-    return this.client !== null;
+    return isLlmConfigured(this.config);
   }
 
   async gerar(input: GerarEnqueteInput): Promise<PerguntaEnquete[]> {
-    if (!this.client) {
+    if (!this.enabled) {
       throw new ServiceUnavailableException(
-        "Geração por IA indisponível: configure ANTHROPIC_API_KEY.",
+        "Geração por IA indisponível: configure GEMINI_API_KEY ou ANTHROPIC_API_KEY.",
       );
     }
 
     const n = clampPerguntas(input.nPerguntas);
     const idioma = input.idioma?.trim() || "pt-BR";
 
-    const response = await this.client.messages.create({
-      model: this.model,
-      max_tokens: 4000,
-      system: SYSTEM_PROMPT,
-      tools: [GERAR_TOOL],
-      tool_choice: { type: "tool", name: TOOL_NAME },
-      messages: [{ role: "user", content: buildPrompt(input, n, idioma) }],
-    });
-
-    const toolUse = response.content.find(
-      (b): b is Anthropic.ToolUseBlock =>
-        b.type === "tool_use" && b.name === TOOL_NAME,
-    );
-    const parsed = (toolUse?.input ?? {}) as { perguntas?: unknown };
+    const parsed = (await this.llmProvider.generateStructured({
+      systemPrompt: SYSTEM_PROMPT,
+      userPrompt: buildPrompt(input, n, idioma),
+      toolName: TOOL_NAME,
+      toolDescription: "Registra as questões da enquete gerada para a aula.",
+      inputSchema: GERAR_SCHEMA,
+      maxTokens: 4000,
+      label: TOOL_NAME,
+    })) as { perguntas?: unknown };
 
     return validarPerguntas(parsed.perguntas, n);
   }

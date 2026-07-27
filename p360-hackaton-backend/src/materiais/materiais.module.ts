@@ -4,6 +4,8 @@ import { AulasModule } from "../aulas/aulas.module";
 import { SessaoModule } from "../sessao/sessao.module";
 import { ContextoAulaService } from "./contexto-aula.service";
 import { IaJsonService } from "./ia-json.service";
+import { ImageResolverService } from "./image-resolver.service";
+import { MaterialComplementarIaService } from "./material-complementar-ia.service";
 import {
   MateriaisAlunoController,
   MateriaisController,
@@ -30,6 +32,8 @@ import { SlidesIaService } from "./slides-ia.service";
     SlidesIaService,
     SimuladoIaService,
     ResumoIaService,
+    MaterialComplementarIaService,
+    ImageResolverService,
     PptxRendererService,
     PdfRendererService,
   ],

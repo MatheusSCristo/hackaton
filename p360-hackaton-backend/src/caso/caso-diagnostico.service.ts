@@ -1,10 +1,14 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import Anthropic from "@anthropic-ai/sdk";
 
+import {
+  isLlmConfigured,
+  LLM_PROVIDER,
+  LlmJsonSchema,
+  LlmProvider,
+} from "../llm/llm-provider.interface";
 import type { AgregadoCaso } from "./caso-coleta.service";
 
-const DEFAULT_MODEL = "claude-haiku-4-5";
 const TOOL_NAME = "diagnosticar_turma";
 
 export interface PontoFraco {
@@ -30,52 +34,48 @@ const SYSTEM_PROMPT =
   "Não invente números nem diagnósticos que não estejam nos dados. " +
   "Se os dados forem escassos, diga isso no resumo e retorne poucos pontos.";
 
-const DIAGNOSTICAR_TOOL: Anthropic.Tool = {
-  name: TOOL_NAME,
-  description: "Registra os pontos fracos da turma e o resumo do desempenho.",
-  input_schema: {
-    type: "object",
-    properties: {
-      pontos_fracos: {
-        type: "array",
-        description: "Pontos a reforçar, do mais para o menos crítico.",
-        items: {
-          type: "object",
-          properties: {
-            titulo: {
-              type: "string",
-              description: "Rótulo curto do problema.",
-            },
-            descricao: { type: "string" },
-            etapa: {
-              type: "string",
-              description:
-                "Etapa do raciocínio: anamnese, examefisico, exames, diagnostico ou conduta.",
-            },
-            severidade: { type: "string", enum: ["alta", "media", "baixa"] },
-            evidencia: {
-              type: "string",
-              description: "O dado que sustenta a conclusão.",
-            },
-            sugestao_reforco: {
-              type: "string",
-              description: "O que o professor deve retomar.",
-            },
+const DIAGNOSTICAR_SCHEMA: LlmJsonSchema = {
+  type: "object",
+  properties: {
+    pontos_fracos: {
+      type: "array",
+      description: "Pontos a reforçar, do mais para o menos crítico.",
+      items: {
+        type: "object",
+        properties: {
+          titulo: {
+            type: "string",
+            description: "Rótulo curto do problema.",
           },
-          required: [
-            "titulo",
-            "descricao",
-            "etapa",
-            "severidade",
-            "evidencia",
-            "sugestao_reforco",
-          ],
+          descricao: { type: "string" },
+          etapa: {
+            type: "string",
+            description:
+              "Etapa do raciocínio: anamnese, examefisico, exames, diagnostico ou conduta.",
+          },
+          severidade: { type: "string", enum: ["alta", "media", "baixa"] },
+          evidencia: {
+            type: "string",
+            description: "O dado que sustenta a conclusão.",
+          },
+          sugestao_reforco: {
+            type: "string",
+            description: "O que o professor deve retomar.",
+          },
         },
+        required: [
+          "titulo",
+          "descricao",
+          "etapa",
+          "severidade",
+          "evidencia",
+          "sugestao_reforco",
+        ],
       },
-      resumo: { type: "string" },
     },
-    required: ["pontos_fracos", "resumo"],
+    resumo: { type: "string" },
   },
+  required: ["pontos_fracos", "resumo"],
 };
 
 /**
@@ -87,41 +87,29 @@ const DIAGNOSTICAR_TOOL: Anthropic.Tool = {
 @Injectable()
 export class CasoDiagnosticoService {
   private readonly logger = new Logger(CasoDiagnosticoService.name);
-  private readonly client: Anthropic | null;
-  private readonly model: string;
 
-  constructor(config: ConfigService) {
-    const apiKey = config.get<string>("ANTHROPIC_API_KEY");
-    this.model = config.get<string>("ANTHROPIC_MODEL") || DEFAULT_MODEL;
-    this.client = apiKey ? new Anthropic({ apiKey }) : null;
-    if (!this.client) {
-      this.logger.warn(
-        "ANTHROPIC_API_KEY ausente — diagnóstico do caso cai para heurística.",
-      );
-    }
-  }
+  constructor(
+    private readonly config: ConfigService,
+    @Inject(LLM_PROVIDER) private readonly llmProvider: LlmProvider,
+  ) {}
 
   async diagnosticar(
     agregado: AgregadoCaso,
     contexto: { casoTitulo?: string | null; publico?: string | null },
   ): Promise<DiagnosticoTurma> {
-    if (!this.client) return heuristica(agregado);
+    if (!isLlmConfigured(this.config)) return heuristica(agregado);
 
     try {
-      const response = await this.client.messages.create({
-        model: this.model,
-        max_tokens: 2000,
-        system: SYSTEM_PROMPT,
-        tools: [DIAGNOSTICAR_TOOL],
-        tool_choice: { type: "tool", name: TOOL_NAME },
-        messages: [{ role: "user", content: buildPrompt(agregado, contexto) }],
-      });
-
-      const toolUse = response.content.find(
-        (b): b is Anthropic.ToolUseBlock =>
-          b.type === "tool_use" && b.name === TOOL_NAME,
-      );
-      const parsed = (toolUse?.input ?? {}) as {
+      const parsed = (await this.llmProvider.generateStructured({
+        systemPrompt: SYSTEM_PROMPT,
+        userPrompt: buildPrompt(agregado, contexto),
+        toolName: TOOL_NAME,
+        toolDescription:
+          "Registra os pontos fracos da turma e o resumo do desempenho.",
+        inputSchema: DIAGNOSTICAR_SCHEMA,
+        maxTokens: 2000,
+        label: TOOL_NAME,
+      })) as {
         pontos_fracos?: unknown;
         resumo?: unknown;
       };
@@ -136,7 +124,7 @@ export class CasoDiagnosticoService {
       };
     } catch (error) {
       this.logger.error(
-        `Falha no diagnóstico (Claude): ${String(error)} — caindo para heurística.`,
+        `Falha no diagnóstico (LLM): ${String(error)} — caindo para heurística.`,
       );
       return heuristica(agregado);
     }

@@ -2,7 +2,7 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 
 import { searchCasos } from "@/services/casos";
 
-export const CASOS_PAGE_SIZE = 6;
+export const CASOS_PAGE_SIZE = 10;
 
 /**
  * Busca paginada de casos do acervo por tema/termo (`q`). Passa o

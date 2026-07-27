@@ -1,0 +1,14 @@
+@keyframes p360-slide-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.p360-slide-transition {
+  animation: p360-slide-enter 220ms ease;
+}

@@ -85,9 +85,7 @@ const toOptions = (values: string[]): CustomOption[] =>
   values.map((value) => ({ value, label: value }));
 
 export const publicoOptions = toOptions([
-  "4º período",
-  "5º período",
-  "6º período",
+  ...Array.from({ length: 12 }, (_, i) => `${i + 1}º período`),
   "Internato",
   "Residência",
 ]);
@@ -97,13 +95,6 @@ export const duracaoOptions = toOptions([
   "50 minutos",
   "60 minutos",
   "90 minutos",
-]);
-
-export const formatoOptions = toOptions([
-  "Expositiva + caso",
-  "Somente caso",
-  "PBL (problem-based)",
-  "Discussão guiada",
 ]);
 
 /** Seções da aba Materiais, na ordem de exibição. */

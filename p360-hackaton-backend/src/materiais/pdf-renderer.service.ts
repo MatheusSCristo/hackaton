@@ -1,7 +1,15 @@
 import { Injectable } from "@nestjs/common";
 import PDFDocument from "pdfkit";
 
+import type { MaterialComplementar, Referencia, TipoReferencia } from "./schemas";
 import type { Resumo } from "./schemas";
+
+const LABEL_TIPO_REFERENCIA: Record<TipoReferencia, string> = {
+  artigo: "ARTIGO CIENTÍFICO",
+  video: "VÍDEO",
+  livro: "LIVRO",
+  site: "SITE / GUIDELINE",
+};
 
 /** Tema portado do `pdf-template.ts` do projeto de origem. */
 const PALETA = {
@@ -92,6 +100,37 @@ export class PdfRendererService {
     return finalizado;
   }
 
+  /** PDF do material complementar: introdução + lista de referências com link clicável. */
+  async renderMaterialComplementar(material: MaterialComplementar): Promise<Buffer> {
+    const doc = new PDFDocument({
+      size: "A4",
+      margins: {
+        top: MARGEM,
+        bottom: MARGEM + RESERVA_RODAPE,
+        left: MARGEM,
+        right: MARGEM,
+      },
+      bufferPages: true,
+      info: { Title: material.title, Author: "Paciente 360" },
+    });
+
+    const chunks: Buffer[] = [];
+    doc.on("data", (chunk: Buffer) => chunks.push(chunk));
+    const finalizado = new Promise<Buffer>((resolve) => {
+      doc.on("end", () => resolve(Buffer.concat(chunks)));
+    });
+
+    this.cabecalho(doc, material.title);
+    this.paragrafo(doc, material.introduction, { tamanho: 11, cor: PALETA.body });
+    doc.moveDown(0.4);
+
+    material.references.forEach((referencia) => this.referencia(doc, referencia));
+
+    this.rodapes(doc);
+    doc.end();
+    return finalizado;
+  }
+
   private cabecalho(doc: PDFKit.PDFDocument, titulo: string): void {
     doc
       .font("Helvetica-Bold")
@@ -156,14 +195,71 @@ export class PdfRendererService {
       .fontSize(10)
       .text(limpo, MARGEM + 14, y + 8, { width: larguraTexto });
 
+    // `.text(str, x, y)` com x explícito muda o cursor `doc.x` do PDFKit
+    // permanentemente — sem resetar, todo texto seguinte (títulos,
+    // parágrafos) herdava esse recuo de +14 em vez de voltar pra margem.
+    doc.x = MARGEM;
     doc.y = y + altura;
     doc.moveDown(0.6);
   }
 
+  /** Uma referência: selo do tipo, título como link, URL truncada, descrição. */
+  private referencia(doc: PDFKit.PDFDocument, ref: Referencia): void {
+    const largura = doc.page.width - MARGEM * 2;
+
+    if (doc.y + 90 > doc.page.height - MARGEM - RESERVA_RODAPE) {
+      doc.addPage();
+    }
+    doc.moveDown(0.5);
+
+    doc
+      .font("Helvetica-Bold")
+      .fontSize(8.5)
+      .fillColor(PALETA.muted)
+      .text(LABEL_TIPO_REFERENCIA[ref.type] ?? ref.type.toUpperCase(), { characterSpacing: 1 });
+    doc.moveDown(0.15);
+
+    const tituloTexto = sanitizar(ref.title);
+    const tituloY = doc.y;
+    doc
+      .font("Helvetica-Bold")
+      .fontSize(12)
+      .fillColor(PALETA.brandRed)
+      .text(tituloTexto, { underline: Boolean(ref.url) });
+    if (ref.url) {
+      doc.link(MARGEM, tituloY, doc.widthOfString(tituloTexto), doc.currentLineHeight(), ref.url);
+    }
+    doc.moveDown(0.1);
+
+    if (ref.url) {
+      const urlY = doc.y;
+      doc
+        .font("Helvetica")
+        .fontSize(9)
+        .fillColor(PALETA.muted)
+        .text(ref.url, { width: largura, lineBreak: false, ellipsis: true });
+      doc.link(MARGEM, urlY, Math.min(doc.widthOfString(ref.url), largura), doc.currentLineHeight(), ref.url);
+      doc.moveDown(0.25);
+    }
+
+    doc
+      .font("Helvetica")
+      .fontSize(10)
+      .fillColor(PALETA.body)
+      .text(sanitizar(ref.description), { lineGap: 2 });
+  }
+
   private rodapes(doc: PDFKit.PDFDocument): void {
     const range = doc.bufferedPageRange();
+    const margemInferiorOriginal = doc.page.margins.bottom;
+
     for (let i = 0; i < range.count; i++) {
       doc.switchToPage(range.start + i);
+
+      // O rodapé fica na "zona reservada" (RESERVA_RODAPE) abaixo da margem
+      // inferior efetiva — sem zerar a margem antes, o PDFKit acha que o
+      // texto estourou a página e cria uma página extra em branco pra ele.
+      doc.page.margins.bottom = 0;
       doc
         .font("Helvetica")
         .fontSize(8.5)
@@ -172,8 +268,9 @@ export class PdfRendererService {
           `${i + 1} / ${range.count}`,
           MARGEM,
           doc.page.height - MARGEM - 6,
-          { width: doc.page.width - MARGEM * 2, align: "right" },
+          { width: doc.page.width - MARGEM * 2, align: "right", lineBreak: false },
         );
+      doc.page.margins.bottom = margemInferiorOriginal;
     }
   }
 }

@@ -27,7 +27,8 @@ export interface CasosPage {
   pageSize: number;
 }
 
-function buildFotoUrl(imagem: string | null): string | null {
+/** Exportado para reaproveitar a mesma regra de URL na listagem de aulas. */
+export function buildFotoUrl(imagem: string | null): string | null {
   if (!imagem) return null;
   const base = Environment.VITE_STORAGE_URL.endsWith("/")
     ? Environment.VITE_STORAGE_URL

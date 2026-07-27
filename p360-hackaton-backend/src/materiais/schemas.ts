@@ -16,12 +16,23 @@ const MAX_TITLE_LENGTH = 80;
 const MAX_BULLET_LENGTH = 170;
 const MAX_SUBTITLE_LENGTH = 120;
 const MAX_SPEAKER_NOTES_LENGTH = 1500;
+const MAX_IMAGE_KEYWORD_LENGTH = 60;
 
 export const slideRoleSchema = z.enum([
   "introduction",
   "development",
   "conclusion",
 ]);
+
+/** Sugestão de imagem do slide — a IA só descreve o assunto; a URL final vem do `ImageResolverService`. */
+export const slideVisualSchema = z.object({
+  keyword: z.string().min(1).max(MAX_IMAGE_KEYWORD_LENGTH),
+  // Antes de resolvida, é uma URL curta sugerida pela IA; depois que o
+  // `ImageResolverService` roda, vira uma data URI base64 embutida (bem
+  // maior) — o limite aqui só existe pra rejeitar valores absurdos, não pra
+  // restringir o tamanho real de uma imagem.
+  imageUrl: z.string().max(10_000_000).optional(),
+});
 
 export const slideSchema = z
   .object({
@@ -33,6 +44,7 @@ export const slideSchema = z
       .max(MAX_BULLETS_PER_SLIDE)
       .default([]),
     speakerNotes: z.string().max(MAX_SPEAKER_NOTES_LENGTH).optional(),
+    visual: slideVisualSchema.optional(),
   })
   .superRefine((slide, ctx) => {
     // Slide de desenvolvimento sem bullet não ensina nada; hero com bullets
@@ -131,3 +143,27 @@ export const resumoSchema = z.object({
 });
 
 export type Resumo = z.infer<typeof resumoSchema>;
+
+// ------------------------------------------------- material complementar
+
+export const MIN_REFERENCIAS = 3;
+export const MAX_REFERENCIAS = 8;
+
+export const tipoReferenciaSchema = z.enum(["artigo", "video", "livro", "site"]);
+
+export const referenciaSchema = z.object({
+  title: z.string().min(1).max(140),
+  type: tipoReferenciaSchema,
+  description: z.string().min(1).max(300),
+  url: z.string().max(500).optional(),
+});
+
+export const materialComplementarSchema = z.object({
+  title: z.string().min(1).max(100),
+  introduction: z.string().min(1).max(500),
+  references: z.array(referenciaSchema).min(MIN_REFERENCIAS).max(MAX_REFERENCIAS),
+});
+
+export type MaterialComplementar = z.infer<typeof materialComplementarSchema>;
+export type Referencia = z.infer<typeof referenciaSchema>;
+export type TipoReferencia = z.infer<typeof tipoReferenciaSchema>;

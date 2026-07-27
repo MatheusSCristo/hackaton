@@ -3,6 +3,12 @@ import Environment from "@/config/env";
 
 import type { Bloco } from "./blocos";
 
+/** Sugestão de imagem do slide, já resolvida pelo backend (URL real ou data URI). */
+export interface SlideVisual {
+  keyword: string;
+  imageUrl?: string;
+}
+
 /** Estrutura dos slides (espelha o schema do backend). */
 export interface SlideGerado {
   role: "introduction" | "development" | "conclusion";
@@ -10,6 +16,7 @@ export interface SlideGerado {
   subtitle?: string;
   content: string[];
   speakerNotes?: string;
+  visual?: SlideVisual;
 }
 
 export interface Apresentacao {
@@ -82,6 +89,21 @@ export interface ResultadoSimulado {
       explicacaoSeIncorreta?: string;
     }[];
   }[];
+}
+
+export type TipoReferencia = "artigo" | "video" | "livro" | "site";
+
+export interface Referencia {
+  title: string;
+  type: TipoReferencia;
+  description: string;
+  url?: string;
+}
+
+export interface MaterialComplementarGerado {
+  title: string;
+  introduction: string;
+  references: Referencia[];
 }
 
 export interface ResultadosSimuladoProfessor {

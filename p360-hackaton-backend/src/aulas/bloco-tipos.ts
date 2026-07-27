@@ -11,6 +11,7 @@ export const TIPOS_BLOCO = [
   "enquete",
   "simulado",
   "resumo",
+  "material_complementar",
   "reforco",
 ] as const;
 export type TipoBloco = (typeof TIPOS_BLOCO)[number];
@@ -35,6 +36,7 @@ export const MOMENTO_POR_TIPO: Record<TipoBloco, MomentoBloco> = {
   enquete: "sessao",
   simulado: "pos_aula",
   resumo: "pos_aula",
+  material_complementar: "pos_aula",
   reforco: "pos_aula",
 };
 
@@ -53,6 +55,7 @@ export const TIPOS_BLOCO_HABILITADOS: readonly TipoBloco[] = [
   "caso",
   "simulado",
   "resumo",
+  "material_complementar",
 ];
 
 export const FOCOS_ENQUETE = ["geral", "fraquezas"] as const;
@@ -76,6 +79,25 @@ export interface AulaTemplate {
  * reordenado depois de aplicado.
  */
 export const AULA_TEMPLATES: readonly AulaTemplate[] = [
+  {
+    id: "completa",
+    nome: "Aula completa",
+    descricao:
+      "Slides, enquete, simulado, resumo e material complementar — tudo gerado de uma vez.",
+    blocos: [
+      { tipo: "slides" },
+      { tipo: "enquete", config: { foco: "geral", nPerguntas: 5 } },
+      { tipo: "simulado" },
+      { tipo: "resumo" },
+      { tipo: "material_complementar" },
+    ],
+  },
+  {
+    id: "apresentacao",
+    nome: "Só apresentação",
+    descricao: "Apenas os slides da aula.",
+    blocos: [{ tipo: "slides" }],
+  },
   {
     id: "diagnostica",
     nome: "Diagnóstica",
@@ -107,18 +129,6 @@ export const AULA_TEMPLATES: readonly AulaTemplate[] = [
       { tipo: "enquete", config: { foco: "geral", nPerguntas: 5 } },
       { tipo: "slides" },
     ],
-  },
-  {
-    id: "apresentacao",
-    nome: "Só apresentação",
-    descricao: "Apenas os slides da aula.",
-    blocos: [{ tipo: "slides" }],
-  },
-  {
-    id: "branco",
-    nome: "Em branco",
-    descricao: "Monte a sequência do zero.",
-    blocos: [],
   },
 ];
 

@@ -20,7 +20,7 @@ interface CountRow {
   total: number;
 }
 
-const DEFAULT_PAGE_SIZE = 6;
+const DEFAULT_PAGE_SIZE = 10;
 
 @Injectable()
 export class CasosService {
@@ -106,5 +106,34 @@ export class CasosService {
     }));
 
     return { items, total, page, pageSize };
+  }
+
+  /**
+   * Imagem crua (nome de arquivo, sem URL montada) de um lote de casos —
+   * usado pela listagem de aulas pra exibir a thumbnail do caso vinculado.
+   * Resiliente: se o banco legado não estiver configurado, devolve tudo
+   * `null` em vez de derrubar a listagem de aulas.
+   */
+  async imagensPorId(ids: number[]): Promise<Map<number, string | null>> {
+    const mapa = new Map<number, string | null>();
+    if (ids.length === 0) return mapa;
+
+    try {
+      const rows = await this.legacyDb.query<{
+        id: number;
+        imagem: string | null;
+      }>(
+        `SELECT c.id, coalesce(c.catalogo_imagem, c.catalogo_img) AS imagem
+         FROM caso c
+         WHERE c.id = ANY($1::int[])`,
+        [ids],
+      );
+      for (const row of rows) mapa.set(row.id, row.imagem ?? null);
+    } catch {
+      // Banco legado indisponível — segue sem thumbnail, não é motivo pra
+      // quebrar a listagem de aulas.
+    }
+
+    return mapa;
   }
 }

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Badge, Box, HStack, Text } from "@cursosactive/p360-new-ui";
+import { AspectRatio, Badge, Box, HStack, Text } from "@cursosactive/p360-new-ui";
 import { Stethoscope } from "lucide-react";
 
 import AppIcon from "./AppIcon";
@@ -41,30 +41,30 @@ export default function CasoCard({ caso, selected, onSelect }: CasoCardProps) {
         boxShadow: "sm",
       }}
     >
-      {/* Foto / placeholder */}
-      <Box
-        h="88px"
-        flexShrink={0}
-        bg={`${caso.areaColor}.50`}
-        display="flex"
-        alignItems="center"
-        justifyContent="center"
-      >
-        {showImg ? (
-          <img
-            src={caso.fotoUrl ?? undefined}
-            alt=""
-            onError={() => setImgError(true)}
-            style={{ width: "100%", height: "100%", objectFit: "cover" }}
-          />
-        ) : (
-          <AppIcon
-            icon={Stethoscope}
-            size={26}
-            color={`${caso.areaColor}.400`}
-          />
-        )}
-      </Box>
+      {/* Foto / placeholder — proporção fixa (4:3) pra não ficar uma tira fina cortada. */}
+      <AspectRatio ratio={4 / 3} w="full" flexShrink={0}>
+        <Box
+          bg={`${caso.areaColor}.50`}
+          display="flex"
+          alignItems="center"
+          justifyContent="center"
+        >
+          {showImg ? (
+            <img
+              src={caso.fotoUrl ?? undefined}
+              alt=""
+              onError={() => setImgError(true)}
+              style={{ width: "100%", height: "100%", objectFit: "cover" }}
+            />
+          ) : (
+            <AppIcon
+              icon={Stethoscope}
+              size={26}
+              color={`${caso.areaColor}.400`}
+            />
+          )}
+        </Box>
+      </AspectRatio>
 
       {/* Conteúdo */}
       <Box

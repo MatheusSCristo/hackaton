@@ -1,10 +1,13 @@
 import { useNavigate } from "react-router";
 import {
+  AspectRatio,
   Badge,
   Box,
   Flex,
   Heading,
   HStack,
+  IconButton,
+  Image,
   SimpleGrid,
   Spinner,
   Stack,
@@ -16,16 +19,19 @@ import {
   BookOpen,
   Lightbulb,
   Plus,
+  Stethoscope,
   Target,
+  Trash2,
   Users,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 import AppIcon from "./AppIcon";
 import { BLOCO_META } from "./blocoMeta";
-import { useInsights, useOverview } from "@/hooks/useAulas";
+import { useInsights, useOverview, useRemoverAula } from "@/hooks/useAulas";
 import type { Aula, DicaIA } from "@/services/aulas";
 import type { TipoBloco } from "@/services/blocos";
+import { buildFotoUrl } from "@/services/casos";
 
 const PRIORIDADE_COR: Record<DicaIA["prioridade"], string> = {
   alta: "red",
@@ -55,7 +61,7 @@ export default function OverviewPage() {
         >
           <Box>
             <Heading size="lg" color="gray.900">
-              Planos de aula
+              Aula Conectada
             </Heading>
             <Text fontSize="sm" color="gray.500">
               Suas aulas, o desempenho das turmas e o que a IA sugere reforçar.
@@ -190,7 +196,7 @@ export default function OverviewPage() {
                 </CustomButton>
               </Box>
             ) : (
-              <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} gap="3">
+              <SimpleGrid columns={{ base: 2, sm: 3, md: 4, lg: 5 }} gap="3">
                 {aulas.map((aula) => (
                   <AulaCard key={aula.id} aula={aula} />
                 ))}
@@ -234,17 +240,28 @@ function StatTile({ icon, color, label, value }: StatTileProps) {
 
 function AulaCard({ aula }: { aula: Aula }) {
   const navigate = useNavigate();
+  const remover = useRemoverAula();
   const data = new Date(aula.createdAt).toLocaleDateString("pt-BR");
   const acertos = aula.metrica?.mediaAcertos ?? 0;
+  const fotoUrl = buildFotoUrl(aula.casoImagem ?? null);
+
+  const handleRemover = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (window.confirm(`Remover a aula "${aula.titulo}"? Essa ação não pode ser desfeita.`)) {
+      remover.mutate(aula.id);
+    }
+  };
+
   return (
     <Box
       as="button"
+      position="relative"
       textAlign="left"
       bg="white"
       borderWidth="1px"
       borderColor="gray.200"
       borderRadius="xl"
-      p="4"
+      overflow="hidden"
       display="flex"
       flexDirection="column"
       h="full"
@@ -253,10 +270,42 @@ function AulaCard({ aula }: { aula: Aula }) {
       _hover={{ borderColor: "blue.300", boxShadow: "sm" }}
       onClick={() => navigate(`/aulas/${aula.id}`)}
     >
-      <Text fontSize="xs" color="gray.400" mb="0.5">
-        {data}
-        {aula.publico ? ` · ${aula.publico}` : ""}
-      </Text>
+      <IconButton
+        aria-label="Remover aula"
+        position="absolute"
+        top="2"
+        right="2"
+        zIndex="1"
+        size="xs"
+        variant="solid"
+        bg="whiteAlpha.900"
+        color="red.500"
+        borderRadius="full"
+        boxShadow="sm"
+        loading={remover.isPending}
+        onClick={handleRemover}
+        _hover={{ bg: "red.50" }}
+      >
+        <Trash2 size={13} />
+      </IconButton>
+
+      {fotoUrl ? (
+        <AspectRatio ratio={4 / 3} w="full" flexShrink={0}>
+          <Image src={fotoUrl} alt="" objectFit="cover" />
+        </AspectRatio>
+      ) : aula.casoTitulo ? (
+        <AspectRatio ratio={4 / 3} w="full" flexShrink={0}>
+          <Flex bg="teal.50" align="center" justify="center">
+            <AppIcon icon={Stethoscope} size={28} color="teal.300" />
+          </Flex>
+        </AspectRatio>
+      ) : null}
+
+      <Box p="4" display="flex" flexDirection="column" flex="1">
+        <Text fontSize="xs" color="gray.400" mb="0.5">
+          {data}
+          {aula.publico ? ` · ${aula.publico}` : ""}
+        </Text>
       <Text fontWeight="bold" color="gray.900" lineHeight="1.3" lineClamp={2}>
         {aula.titulo}
       </Text>
@@ -296,7 +345,8 @@ function AulaCard({ aula }: { aula: Aula }) {
         </Box>
       )}
 
-      <SequenciaBadges aula={aula} />
+        <SequenciaBadges aula={aula} />
+      </Box>
     </Box>
   );
 }

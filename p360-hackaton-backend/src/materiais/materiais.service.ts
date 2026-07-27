@@ -13,12 +13,19 @@ import type { BlocoDto } from "../aulas/dto/bloco.dto";
 import { SessaoService } from "../sessao/sessao.service";
 import { ContextoAulaService } from "./contexto-aula.service";
 import { IaJsonService } from "./ia-json.service";
+import { ImageResolverService } from "./image-resolver.service";
+import { MaterialComplementarIaService } from "./material-complementar-ia.service";
 import { PdfRendererService } from "./pdf-renderer.service";
 import { PptxRendererService } from "./pptx-renderer.service";
 import { ResumoIaService } from "./resumo-ia.service";
 import { SimuladoIaService } from "./simulado-ia.service";
 import { SlidesIaService } from "./slides-ia.service";
-import { apresentacaoSchema, resumoSchema, simuladoSchema } from "./schemas";
+import {
+  apresentacaoSchema,
+  materialComplementarSchema,
+  resumoSchema,
+  simuladoSchema,
+} from "./schemas";
 import type { Apresentacao, Simulado } from "./schemas";
 
 export interface ArquivoGerado {
@@ -65,7 +72,12 @@ export interface ResultadoSimulado {
   }[];
 }
 
-const TIPOS_GERAVEIS = ["slides", "simulado", "resumo"] as const;
+const TIPOS_GERAVEIS = [
+  "slides",
+  "simulado",
+  "resumo",
+  "material_complementar",
+] as const;
 type TipoGeravel = (typeof TIPOS_GERAVEIS)[number];
 
 function asObject(value: unknown): Record<string, unknown> | null {
@@ -96,6 +108,8 @@ export class MateriaisService {
     private readonly slidesIa: SlidesIaService,
     private readonly simuladoIa: SimuladoIaService,
     private readonly resumoIa: ResumoIaService,
+    private readonly materialComplementarIa: MaterialComplementarIaService,
+    private readonly imageResolver: ImageResolverService,
     private readonly pptx: PptxRendererService,
     private readonly pdf: PdfRendererService,
     private readonly ia: IaJsonService,
@@ -119,6 +133,9 @@ export class MateriaisService {
 
     if (tipo === "slides") {
       const apresentacao = await this.slidesIa.gerar(ctx);
+      // Resolve as imagens reais (Unsplash/Wikimedia/Picsum) antes de
+      // persistir — o PPTX é sempre renderizado a partir do que foi salvo.
+      await this.imageResolver.resolveForPresentation(apresentacao);
       return this.blocos.mergeOutput(blocoId, {
         apresentacao,
         geradoEm: new Date().toISOString(),
@@ -126,14 +143,24 @@ export class MateriaisService {
       });
     }
 
-    // Simulado e resumo aproveitam os slides já gerados na aula, quando houver:
-    // assim cobrem o que foi efetivamente apresentado.
+    // Simulado, resumo e material complementar aproveitam os slides já
+    // gerados na aula, quando houver: assim cobrem o que foi efetivamente
+    // apresentado.
     const apresentacao = await this.apresentacaoDaAula(aulaId);
 
     if (tipo === "simulado") {
       const simulado = await this.simuladoIa.gerar(ctx, apresentacao);
       return this.blocos.mergeOutput(blocoId, {
         simulado,
+        geradoEm: new Date().toISOString(),
+        ia: true,
+      });
+    }
+
+    if (tipo === "material_complementar") {
+      const materialComplementar = await this.materialComplementarIa.gerar(ctx, apresentacao);
+      return this.blocos.mergeOutput(blocoId, {
+        materialComplementar,
         geradoEm: new Date().toISOString(),
         ia: true,
       });
@@ -181,6 +208,19 @@ export class MateriaisService {
       return {
         buffer,
         filename: `${slug(parsed.data.title)}-resumo.pdf`,
+        mimeType: "application/pdf",
+      };
+    }
+
+    if (bloco.tipo === "material_complementar") {
+      const parsed = materialComplementarSchema.safeParse(output.materialComplementar);
+      if (!parsed.success) {
+        throw new BadRequestException("Gere o material complementar antes de baixar.");
+      }
+      const buffer = await this.pdf.renderMaterialComplementar(parsed.data);
+      return {
+        buffer,
+        filename: `${slug(parsed.data.title)}-material-complementar.pdf`,
         mimeType: "application/pdf",
       };
     }
@@ -398,7 +438,7 @@ export class MateriaisService {
     const bloco = await this.blocos.getBloco(aulaId, blocoId, professorId);
     if (!TIPOS_GERAVEIS.includes(bloco.tipo as TipoGeravel)) {
       throw new BadRequestException(
-        "Este bloco não gera material (slides, simulado ou resumo).",
+        "Este bloco não gera material (slides, simulado, resumo ou material complementar).",
       );
     }
     const aula = await this.prisma.aula.findUnique({ where: { id: aulaId } });

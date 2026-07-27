@@ -18,9 +18,10 @@ import AppIcon from "../AppIcon";
 import CasoCard from "../CasoCard";
 import CasosList from "../CasosList";
 import CasosSemanticList from "../CasosSemanticList";
-import { casos, duracaoOptions, formatoOptions, publicoOptions } from "../data";
+import { casos, duracaoOptions, publicoOptions } from "../data";
 import Environment from "@/config/env";
 import { useAulaStore } from "@/store/aulaStore";
+import { useValidacaoEtapaCriar } from "@/hooks/useValidacaoEtapaCriar";
 
 const fieldLabelProps = {
   fontSize: "sm",
@@ -34,17 +35,23 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 }
 
 interface CriarTabProps {
+  /**
+   * Tenta avançar — quem decide se avança de verdade ou só sinaliza os erros
+   * é o pai (`AulaConectadaPage`), que aplica a mesma regra pro clique direto
+   * na aba "2. Materiais".
+   */
   onNext?: () => void;
+  /** Mostrar mensagens de erro — liga depois da 1ª tentativa de avançar. */
+  mostrarErros: boolean;
 }
 
-export default function CriarTab({ onNext }: CriarTabProps) {
+export default function CriarTab({ onNext, mostrarErros }: CriarTabProps) {
   const {
     mode,
     selectedCaseId,
     tema,
     publico,
     duracao,
-    formato,
     objetivos,
     setMode,
     selectCase,
@@ -57,7 +64,7 @@ export default function CriarTab({ onNext }: CriarTabProps) {
 
   // Em modo mock, renderiza os casos de exemplo sem busca/paginação.
   const mockList = (
-    <SimpleGrid columns={{ base: 1, sm: 2, md: 3 }} gap="3">
+    <SimpleGrid columns={{ base: 2, sm: 3, md: 4, lg: 5 }} gap="3">
       {casos.map((caso) => (
         <CasoCard
           key={caso.id}
@@ -68,6 +75,9 @@ export default function CriarTab({ onNext }: CriarTabProps) {
       ))}
     </SimpleGrid>
   );
+
+  const { erroPontoDePartida, erroPublico, erroDuracao } =
+    useValidacaoEtapaCriar();
 
   return (
     <>
@@ -168,13 +178,22 @@ export default function CriarTab({ onNext }: CriarTabProps) {
             </Box>
           )}
 
-          <SimpleGrid columns={{ base: 1, md: 3 }} gap="4">
+          {mostrarErros && erroPontoDePartida && (
+            <Text fontSize="xs" color="red.500">
+              {erroPontoDePartida}
+            </Text>
+          )}
+
+          <SimpleGrid columns={{ base: 1, md: 2 }} gap="4">
             <CustomSelect
               label="Público-alvo"
               placeholder="Selecione"
               value={publico}
               options={publicoOptions}
               onChange={(value) => setField("publico", value)}
+              required
+              showAsterisk
+              errorMessage={mostrarErros ? erroPublico : null}
             />
             <CustomSelect
               label="Duração da aula"
@@ -182,13 +201,9 @@ export default function CriarTab({ onNext }: CriarTabProps) {
               value={duracao}
               options={duracaoOptions}
               onChange={(value) => setField("duracao", value)}
-            />
-            <CustomSelect
-              label="Formato"
-              placeholder="Selecione"
-              value={formato}
-              options={formatoOptions}
-              onChange={(value) => setField("formato", value)}
+              required
+              showAsterisk
+              errorMessage={mostrarErros ? erroDuracao : null}
             />
           </SimpleGrid>
 

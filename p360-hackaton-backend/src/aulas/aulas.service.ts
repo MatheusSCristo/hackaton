@@ -8,6 +8,7 @@ import type {
 } from "@prisma/client";
 
 import { PrismaService } from "../prisma/prisma.service";
+import { CasosService } from "../casos/casos.service";
 import { toBlocoDto } from "./blocos.service";
 import type { CreateAulaDto } from "./dto/create-aula.dto";
 import type {
@@ -28,13 +29,14 @@ function engajamentoPct(m: AulaMetrica): number {
     : 0;
 }
 
-function toDto(aula: AulaComRelacoes): AulaDto {
+function toDto(aula: AulaComRelacoes, casoImagem: string | null = null): AulaDto {
   return {
     id: aula.id,
     titulo: aula.titulo,
     modo: aula.modo,
     casoLegacyId: aula.casoLegacyId,
     casoTitulo: aula.casoTitulo,
+    casoImagem,
     tema: aula.tema,
     publico: aula.publico,
     duracao: aula.duracao,
@@ -59,7 +61,10 @@ const avg = (nums: number[]): number =>
 
 @Injectable()
 export class AulasService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly casos: CasosService,
+  ) {}
 
   async create(
     professorId: string,
@@ -113,6 +118,18 @@ export class AulasService {
     });
   }
 
+  /** Remove a aula e tudo que depende dela (blocos, materiais, sessões — cascade no schema). */
+  async remove(professorId: string, aulaId: string): Promise<void> {
+    const aula = await this.prisma.aula.findFirst({
+      where: { id: aulaId, professorId },
+      select: { id: true },
+    });
+    if (!aula) {
+      throw new NotFoundException("Aula não encontrada.");
+    }
+    await this.prisma.aula.delete({ where: { id: aulaId } });
+  }
+
   /** Uma aula do professor (para o cockpit da sessão). */
   async findOne(professorId: string, aulaId: string): Promise<AulaDto> {
     const aula = await this.prisma.aula.findFirst({
@@ -122,7 +139,12 @@ export class AulasService {
     if (!aula) {
       throw new NotFoundException("Aula não encontrada.");
     }
-    return toDto(aula);
+    const imagem = aula.casoLegacyId
+      ? (await this.casos.imagensPorId([aula.casoLegacyId])).get(
+          aula.casoLegacyId,
+        ) ?? null
+      : null;
+    return toDto(aula, imagem);
   }
 
   async overview(professorId: string): Promise<OverviewDto> {
@@ -138,6 +160,21 @@ export class AulasService {
       engajamento: avg(metricas.map(engajamentoPct)),
     };
 
-    return { kpis, aulas: aulas.map(toDto) };
+    // Uma única consulta em lote pro banco legado, em vez de N+1 por aula.
+    const casoIds = [
+      ...new Set(
+        aulas
+          .map((a) => a.casoLegacyId)
+          .filter((id): id is number => id !== null),
+      ),
+    ];
+    const imagens = await this.casos.imagensPorId(casoIds);
+
+    return {
+      kpis,
+      aulas: aulas.map((a) =>
+        toDto(a, a.casoLegacyId ? (imagens.get(a.casoLegacyId) ?? null) : null),
+      ),
+    };
   }
 }

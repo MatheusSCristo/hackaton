@@ -1,0 +1,4 @@
+# Runtime dos scripts start.sh/stop.sh/run-env.sh/stop-env.sh — regenerados a cada execução.
+logs/
+.hackaton-pids
+.run-env-pids

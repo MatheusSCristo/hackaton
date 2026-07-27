@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   Badge,
   Box,
   Flex,
   Heading,
   HStack,
+  Link,
   SimpleGrid,
   Stack,
   Text,
@@ -13,19 +14,24 @@ import {
   CustomSelect,
 } from "@cursosactive/p360-new-ui";
 import {
+  BookOpen,
   BookOpenCheck,
   Check,
   Download,
   EyeOff,
+  FileText,
+  Globe,
   LockKeyhole,
   RefreshCw,
   Settings2,
   Share2,
   Sparkles,
   Users,
+  Video,
 } from "lucide-react";
 
 import { momentoDoTipo } from "./blocoMeta";
+import { PresentationViewer } from "./presentation";
 import { useUpdateBloco } from "@/hooks/useBlocos";
 import {
   useBaixarMaterial,
@@ -36,11 +42,15 @@ import { useDefinirGabarito, usePublicarPosAula } from "@/hooks/useSimulado";
 import type { Bloco } from "@/services/blocos";
 import type {
   Apresentacao,
+  MaterialComplementarGerado,
+  Referencia,
   ResumoGerado,
   SimuladoGerado,
+  TipoReferencia,
 } from "@/services/materiais";
+import { mensagemErro } from "@/utils/erro";
 
-type TipoMaterial = "slides" | "simulado" | "resumo";
+type TipoMaterial = "slides" | "simulado" | "resumo" | "material_complementar";
 
 const N_SLIDES_OPTIONS = [5, 6, 8, 10, 12].map((n) => ({
   value: String(n),
@@ -85,7 +95,10 @@ export default function MaterialBloco({
   const apresentacao = output.apresentacao as Apresentacao | undefined;
   const simulado = output.simulado as SimuladoGerado | undefined;
   const resumo = output.resumo as ResumoGerado | undefined;
-  const gerado = Boolean(apresentacao ?? simulado ?? resumo);
+  const materialComplementar = output.materialComplementar as
+    | MaterialComplementarGerado
+    | undefined;
+  const gerado = Boolean(apresentacao ?? simulado ?? resumo ?? materialComplementar);
   const publicado = Boolean(output.publicadoEm);
   const gabaritoLiberado = output.gabaritoLiberado === true;
 
@@ -96,7 +109,16 @@ export default function MaterialBloco({
   );
 
   const erro = gerar.error ?? baixar.error;
-  const temDownload = tipo === "slides" || tipo === "resumo";
+  const temDownload =
+    tipo === "slides" || tipo === "resumo" || tipo === "material_complementar";
+
+  const nomeArquivo: Record<TipoMaterial, string> = {
+    slides: "apresentacao.pptx",
+    simulado: "simulado.pdf",
+    resumo: "resumo.pdf",
+    material_complementar: "material-complementar.pdf",
+  };
+  const labelDownload = tipo === "slides" ? "Baixar PPTX" : "Baixar PDF";
 
   return (
     <Box pl={{ base: 0, md: 12 }}>
@@ -120,12 +142,11 @@ export default function MaterialBloco({
             onClick={() =>
               baixar.mutate({
                 blocoId: bloco.id,
-                nomeSugerido:
-                  tipo === "slides" ? "apresentacao.pptx" : "resumo.pdf",
+                nomeSugerido: nomeArquivo[tipo],
               })
             }
           >
-            {tipo === "slides" ? "Baixar PPTX" : "Baixar PDF"}
+            {labelDownload}
           </CustomButton>
         )}
 
@@ -233,9 +254,12 @@ export default function MaterialBloco({
         </Box>
       )}
 
-      {apresentacao && <PreviewSlides apresentacao={apresentacao} />}
+      {apresentacao && <PresentationViewer presentation={apresentacao} />}
       {simulado && <PreviewSimulado simulado={simulado} />}
       {resumo && <PreviewResumo resumo={resumo} />}
+      {materialComplementar && (
+        <PreviewMaterialComplementar material={materialComplementar} />
+      )}
 
       {tipo === "simulado" && resultados.data && (
         <ResultadosSimulado dados={resultados.data} liberado={liberado} />
@@ -254,6 +278,25 @@ function Personalizacao({
   onChange: (patch: Record<string, unknown>) => void;
 }) {
   const config = bloco.config as Record<string, unknown>;
+
+  // Estado local pro texto: um `value` controlado direto por `bloco.config`
+  // (dado do servidor) reabre a cada PATCH — a resposta/refetch de uma tecla
+  // podia chegar depois da próxima e "comer" o que já tinha sido digitado.
+  // Cada `MaterialBloco` é montado 1x por bloco (key={bloco.id} na lista), então
+  // inicializar 1x aqui já basta; a mutação do servidor roda em segundo plano,
+  // debounced, sem nunca sobrescrever o que está sendo digitado.
+  const [instrucoes, setInstrucoes] = useState(
+    () => String(config.instrucoesExtras ?? ""),
+  );
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleInstrucoesChange = (value: string) => {
+    setInstrucoes(value);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      onChange({ instrucoesExtras: value });
+    }, 600);
+  };
 
   return (
     <Box
@@ -289,62 +332,81 @@ function Personalizacao({
         <CustomInput
           label="Instruções adicionais"
           placeholder="Ex.: enfatizar diagnóstico diferencial"
-          value={String(config.instrucoesExtras ?? "")}
-          onChange={(value: string) => onChange({ instrucoesExtras: value })}
+          value={instrucoes}
+          onChange={handleInstrucoesChange}
         />
       </SimpleGrid>
     </Box>
   );
 }
 
-function PreviewSlides({ apresentacao }: { apresentacao: Apresentacao }) {
+const ICONE_REFERENCIA: Record<TipoReferencia, typeof FileText> = {
+  artigo: FileText,
+  video: Video,
+  livro: BookOpen,
+  site: Globe,
+};
+
+const LABEL_REFERENCIA: Record<TipoReferencia, string> = {
+  artigo: "Artigo científico",
+  video: "Vídeo",
+  livro: "Livro",
+  site: "Site / guideline",
+};
+
+function PreviewMaterialComplementar({
+  material,
+}: {
+  material: MaterialComplementarGerado;
+}) {
   return (
     <Box borderWidth="1px" borderColor="gray.200" borderRadius="lg" p="4">
-      <Flex align="center" justify="space-between" mb="3" gap="2" wrap="wrap">
-        <Heading size="xs" color="gray.700">
-          {apresentacao.title}
-        </Heading>
-        <Badge
-          variant="subtle"
-          colorPalette="blue"
-          borderRadius="full"
-          fontSize="2xs"
-        >
-          {apresentacao.slides.length} slides
-        </Badge>
-      </Flex>
+      <Heading size="xs" color="gray.700" mb="1">
+        {material.title}
+      </Heading>
+      <Text fontSize="xs" color="gray.600" mb="3">
+        {material.introduction}
+      </Text>
 
       <Stack gap="2">
-        {apresentacao.slides.map((slide, index) => (
-          <Box
-            key={`${index}-${slide.title}`}
-            borderWidth="1px"
-            borderColor="gray.100"
-            borderRadius="md"
-            p="2.5"
-          >
-            <Flex gap="2" align="baseline">
-              <Text fontSize="2xs" color="gray.400" minW="18px">
-                {index + 1}
-              </Text>
-              <Box minW="0" flex="1">
-                <Text fontWeight="semibold" fontSize="sm" color="gray.900">
-                  {slide.title}
-                </Text>
-                {slide.content.length > 0 && (
-                  <Stack gap="0.5" mt="1">
-                    {slide.content.map((bullet, i) => (
-                      <Text key={i} fontSize="xs" color="gray.600">
-                        • {bullet}
-                      </Text>
-                    ))}
-                  </Stack>
-                )}
-              </Box>
-            </Flex>
-          </Box>
+        {material.references.map((ref, index) => (
+          <ReferenciaCard key={index} referencia={ref} />
         ))}
       </Stack>
+    </Box>
+  );
+}
+
+function ReferenciaCard({ referencia }: { referencia: Referencia }) {
+  const Icone = ICONE_REFERENCIA[referencia.type];
+
+  return (
+    <Box borderWidth="1px" borderColor="gray.100" borderRadius="md" p="3">
+      <HStack gap="1.5" mb="1" color="gray.400">
+        <Icone size={12} />
+        <Text fontSize="2xs" fontWeight="semibold" textTransform="uppercase">
+          {LABEL_REFERENCIA[referencia.type]}
+        </Text>
+      </HStack>
+      {referencia.url ? (
+        <Link
+          href={referencia.url}
+          target="_blank"
+          rel="noreferrer"
+          fontWeight="semibold"
+          fontSize="sm"
+          color="blue.600"
+        >
+          {referencia.title}
+        </Link>
+      ) : (
+        <Text fontWeight="semibold" fontSize="sm" color="gray.900">
+          {referencia.title}
+        </Text>
+      )}
+      <Text fontSize="xs" color="gray.600" mt="1">
+        {referencia.description}
+      </Text>
     </Box>
   );
 }
@@ -517,18 +579,4 @@ function ResultadosSimulado({
       </Stack>
     </Box>
   );
-}
-
-function mensagemErro(error: unknown): string {
-  if (typeof error === "object" && error !== null) {
-    const data = (error as { response?: { data?: unknown } }).response?.data;
-    if (typeof data === "object" && data !== null) {
-      const message = (data as { message?: unknown }).message;
-      if (typeof message === "string") return message;
-      if (Array.isArray(message)) return message.join(", ");
-    }
-    const fallback = (error as { message?: unknown }).message;
-    if (typeof fallback === "string") return fallback;
-  }
-  return "Não foi possível concluir a operação.";
 }

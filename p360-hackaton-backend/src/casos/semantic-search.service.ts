@@ -1,13 +1,17 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import Anthropic from "@anthropic-ai/sdk";
 
+import {
+  isLlmConfigured,
+  LLM_PROVIDER,
+  LlmJsonSchema,
+  LlmProvider,
+} from "../llm/llm-provider.interface";
 import { CasosService } from "./casos.service";
 import type { CasoResponseDto } from "./dto/caso-response.dto";
 
 /** Nº máximo de casos do acervo enviados ao modelo como candidatos. */
 const MAX_CANDIDATES = 100;
-const DEFAULT_MODEL = "claude-opus-4-8";
 const DEFAULT_LIMIT = 10;
 
 interface RankMatch {
@@ -26,62 +30,47 @@ const SYSTEM_PROMPT =
 
 const TOOL_NAME = "selecionar_casos";
 
-// Saída estruturada via tool use forçado (robusto em qualquer versão do SDK).
-const SELECT_TOOL: Anthropic.Tool = {
-  name: TOOL_NAME,
-  description:
-    "Registra os casos relevantes para o tema, ordenados do mais para o menos relevante.",
-  input_schema: {
-    type: "object",
-    properties: {
-      matches: {
-        type: "array",
-        description: "Casos relevantes, ordenados por relevância decrescente.",
-        items: {
-          type: "object",
-          properties: {
-            index: {
-              type: "integer",
-              description: "Índice do caso na lista fornecida.",
-            },
-            relevancia: { type: "string", enum: ["alta", "media", "baixa"] },
+// Saída estruturada (tool use forçado na Anthropic, JSON mode no Gemini).
+const SELECT_SCHEMA: LlmJsonSchema = {
+  type: "object",
+  properties: {
+    matches: {
+      type: "array",
+      description: "Casos relevantes, ordenados por relevância decrescente.",
+      items: {
+        type: "object",
+        properties: {
+          index: {
+            type: "integer",
+            description: "Índice do caso na lista fornecida.",
           },
-          required: ["index", "relevancia"],
+          relevancia: { type: "string", enum: ["alta", "media", "baixa"] },
         },
+        required: ["index", "relevancia"],
       },
     },
-    required: ["matches"],
   },
+  required: ["matches"],
 };
 
 @Injectable()
 export class SemanticSearchService {
   private readonly logger = new Logger(SemanticSearchService.name);
-  private readonly client: Anthropic | null;
-  private readonly model: string;
 
   constructor(
-    config: ConfigService,
+    private readonly config: ConfigService,
+    @Inject(LLM_PROVIDER) private readonly llmProvider: LlmProvider,
     private readonly casos: CasosService,
-  ) {
-    const apiKey = config.get<string>("ANTHROPIC_API_KEY");
-    this.model = config.get<string>("ANTHROPIC_MODEL") || DEFAULT_MODEL;
-    this.client = apiKey ? new Anthropic({ apiKey }) : null;
-    if (!this.client) {
-      this.logger.warn(
-        "ANTHROPIC_API_KEY ausente — busca por tema cai para busca textual (ILIKE).",
-      );
-    }
-  }
+  ) {}
 
-  /** Se a busca semântica (Claude) está disponível. */
+  /** Se a busca semântica (LLM) está disponível. */
   get enabled(): boolean {
-    return this.client !== null;
+    return isLlmConfigured(this.config);
   }
 
   /**
-   * Busca por tema. Com chave Anthropic, ranqueia semanticamente o acervo da
-   * empresa via Claude (rerank por LLM). Sem chave, cai para ILIKE.
+   * Busca por tema. Com provider de LLM configurado, ranqueia semanticamente
+   * o acervo da empresa (rerank por LLM). Sem chave, cai para ILIKE.
    */
   async searchByTheme(
     empId: number,
@@ -91,7 +80,7 @@ export class SemanticSearchService {
     const term = tema.trim();
     if (!term) return [];
 
-    if (!this.client) {
+    if (!this.enabled) {
       const fallback = await this.casos.search(empId, term, 1, limit);
       return fallback.items;
     }
@@ -113,25 +102,16 @@ export class SemanticSearchService {
       .join("\n");
 
     try {
-      const response = await this.client.messages.create({
-        model: this.model,
-        max_tokens: 2000,
-        system: SYSTEM_PROMPT,
-        tools: [SELECT_TOOL],
-        tool_choice: { type: "tool", name: TOOL_NAME },
-        messages: [
-          {
-            role: "user",
-            content: `Tema da aula: "${term}"\n\nCasos disponíveis:\n${numbered}`,
-          },
-        ],
-      });
-
-      const toolUse = response.content.find(
-        (b): b is Anthropic.ToolUseBlock =>
-          b.type === "tool_use" && b.name === TOOL_NAME,
-      );
-      const parsed = (toolUse?.input ?? {}) as { matches?: RankMatch[] };
+      const parsed = (await this.llmProvider.generateStructured({
+        systemPrompt: SYSTEM_PROMPT,
+        userPrompt: `Tema da aula: "${term}"\n\nCasos disponíveis:\n${numbered}`,
+        toolName: TOOL_NAME,
+        toolDescription:
+          "Registra os casos relevantes para o tema, ordenados do mais para o menos relevante.",
+        inputSchema: SELECT_SCHEMA,
+        maxTokens: 2000,
+        label: TOOL_NAME,
+      })) as { matches?: RankMatch[] };
 
       const seen = new Set<string>();
       const ranked: CasoResponseDto[] = [];
@@ -153,7 +133,7 @@ export class SemanticSearchService {
       return ranked;
     } catch (error) {
       this.logger.error(
-        `Falha na busca semântica (Claude): ${String(error)} — caindo para ILIKE.`,
+        `Falha na busca semântica (LLM): ${String(error)} — caindo para ILIKE.`,
       );
       const fallback = await this.casos.search(empId, term, 1, limit);
       return fallback.items;

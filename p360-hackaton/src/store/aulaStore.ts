@@ -7,7 +7,7 @@ export type StartMode = "caso" | "tema";
 
 /** Campos de texto/seleção editáveis do rascunho da aula. */
 export type AulaTextField =
-  "tema" | "publico" | "duracao" | "formato" | "objetivos";
+  "tema" | "publico" | "duracao" | "objetivos";
 
 /**
  * Bloco ainda não persistido. Só existe enquanto o professor monta a sequência;
@@ -29,7 +29,6 @@ export interface AulaState {
   tema: string;
   publico: string;
   duracao: string;
-  formato: string;
   objetivos: string;
   /** Sequência de blocos da sessão, na ordem montada pelo professor. */
   blocos: BlocoDraft[];
@@ -63,7 +62,6 @@ const initialState = {
   tema: "",
   publico: "",
   duracao: "",
-  formato: "",
   objetivos: "",
   blocos: [] as BlocoDraft[],
   templateId: null as string | null,

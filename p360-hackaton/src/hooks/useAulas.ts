@@ -5,6 +5,7 @@ import {
   getAula,
   getInsights,
   getOverview,
+  removerAula,
   type CriarAulaPayload,
 } from "@/services/aulas";
 
@@ -36,6 +37,16 @@ export function useCriarAula() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (payload: CriarAulaPayload) => criarAula(payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["aulas"] });
+    },
+  });
+}
+
+export function useRemoverAula() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (aulaId: string) => removerAula(aulaId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["aulas"] });
     },

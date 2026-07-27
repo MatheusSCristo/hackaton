@@ -1,6 +1,7 @@
 import {
   ClipboardList,
   FileText,
+  Library,
   Presentation,
   Route,
   Stethoscope,
@@ -78,6 +79,15 @@ export const BLOCO_META: Record<TipoBloco, BlocoMeta> = {
     color: "orange",
     enabled: true,
   },
+  material_complementar: {
+    tipo: "material_complementar",
+    momento: "pos_aula",
+    titulo: "Material complementar",
+    descricao: "Leituras, vídeos e referências reais para aprofundar o tema.",
+    icon: Library,
+    color: "teal",
+    enabled: true,
+  },
   reforco: {
     tipo: "reforco",
     momento: "pos_aula",
@@ -100,6 +110,7 @@ export const BLOCOS_SESSAO: BlocoMeta[] = [
 export const BLOCOS_POS_AULA: BlocoMeta[] = [
   BLOCO_META.simulado,
   BLOCO_META.resumo,
+  BLOCO_META.material_complementar,
   BLOCO_META.reforco,
 ];
 

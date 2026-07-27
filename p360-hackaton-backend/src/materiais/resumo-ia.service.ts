@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import type Anthropic from "@anthropic-ai/sdk";
+import type { LlmJsonSchema } from "../llm/llm-provider.interface";
 
 import { IaJsonService } from "./ia-json.service";
 import { resumoSchema } from "./schemas";
@@ -20,7 +20,7 @@ const SYSTEM_PROMPT = [
   "Escreva TODO o conteúdo no idioma solicitado.",
 ].join(" ");
 
-const INPUT_SCHEMA: Anthropic.Tool["input_schema"] = {
+const INPUT_SCHEMA: LlmJsonSchema = {
   type: "object",
   properties: {
     title: { type: "string" },

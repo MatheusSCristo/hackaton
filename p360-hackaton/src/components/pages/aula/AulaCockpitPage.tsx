@@ -30,6 +30,7 @@ import { useSessaoLive } from "@/hooks/useSessaoLive";
 import type { EstadoSessao } from "@/services/sessao";
 import type { Bloco } from "@/services/blocos";
 import type { TipoBloco } from "@/services/blocos";
+import { getAccessToken } from "@/utils/accessToken";
 
 /**
  * Cockpit da sessão: a sequência salva, com as ações de cada bloco.
@@ -49,6 +50,22 @@ export default function AulaCockpitPage() {
   const sessao = live.estado ?? sessaoRest ?? null;
 
   const carregando = carregandoAula || carregandoBlocos;
+
+  /**
+   * Abre as duas janelas de uma vez: a de controle (esta mesma navegação) e a
+   * de projeção (pop-up), pra não precisar de um clique extra em "Abrir
+   * projeção" lá dentro. `sessionStorage` é por aba — por isso o token vai
+   * pela URL, igual ao botão "Abrir projeção" do modo apresentação.
+   */
+  const handleApresentar = () => {
+    const token = getAccessToken();
+    const urlProjecao = token
+      ? `/aulas/${aulaId}/projetar?accessToken=${encodeURIComponent(token)}`
+      : `/aulas/${aulaId}/projetar`;
+
+    window.open(urlProjecao, "p360-projecao", "noopener,width=1280,height=720");
+    navigate(`/aulas/${aulaId}/apresentar`);
+  };
 
   return (
     <Box minH="100vh" bg="gray.50">
@@ -79,7 +96,7 @@ export default function AulaCockpitPage() {
           <CustomButton
             variant="solid"
             icon={MonitorPlay}
-            onClick={() => navigate(`/aulas/${aulaId}/apresentar`)}
+            onClick={handleApresentar}
           >
             Apresentar
           </CustomButton>
@@ -107,7 +124,7 @@ export default function AulaCockpitPage() {
             </Text>
           </Box>
         ) : (
-          <Stack gap="4" maxW="900px">
+          <Stack gap="4" maxW="1200px" mx="auto">
             <SessaoPanel
               aulaId={aulaId as string}
               estado={sessao}
@@ -150,7 +167,9 @@ function BlocoCard({ aulaId, bloco, posicao, sessao }: BlocoCardProps) {
   const liberado = ehAtual && sessao?.estadoAtual === "liberado";
 
   const ehCaso = bloco.tipo === "caso";
-  const ehMaterial = ["slides", "simulado", "resumo"].includes(bloco.tipo);
+  const ehMaterial = ["slides", "simulado", "resumo", "material_complementar"].includes(
+    bloco.tipo,
+  );
 
   return (
     <Box
@@ -219,7 +238,9 @@ function BlocoCard({ aulaId, bloco, posicao, sessao }: BlocoCardProps) {
         <MaterialBloco
           aulaId={aulaId}
           bloco={bloco}
-          tipo={bloco.tipo as "slides" | "simulado" | "resumo"}
+          tipo={
+            bloco.tipo as "slides" | "simulado" | "resumo" | "material_complementar"
+          }
           liberado={liberado}
         />
       )}

@@ -1,15 +1,19 @@
 import {
+  Inject,
   Injectable,
   Logger,
   ServiceUnavailableException,
   UnprocessableEntityException,
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import Anthropic from "@anthropic-ai/sdk";
 import type { ZodType } from "zod";
 
-const DEFAULT_MODEL = "claude-haiku-4-5";
-const MAX_TOKENS = 8000;
+import {
+  isLlmConfigured,
+  LLM_PROVIDER,
+  LlmJsonSchema,
+  LlmProvider,
+} from "../llm/llm-provider.interface";
 
 export interface GerarJsonOpts<T> {
   systemPrompt: string;
@@ -17,47 +21,38 @@ export interface GerarJsonOpts<T> {
   /** Nome + schema da tool: é o que força a saída estruturada. */
   toolName: string;
   toolDescription: string;
-  inputSchema: Anthropic.Tool["input_schema"];
+  inputSchema: LlmJsonSchema;
   /** Validação do payload; falha dispara **uma** nova tentativa. */
   schema: ZodType<T>;
   maxTokens?: number;
 }
 
 /**
- * Gerador de JSON estruturado com Claude, compartilhado por slides, simulado e
- * resumo.
+ * Gerador de JSON estruturado (Gemini com fallback Anthropic), compartilhado
+ * por slides, simulado e resumo.
  *
- * Diferença deliberada em relação ao projeto de origem (que usava JSON mode +
- * parser tolerante): aqui a saída vem por **tool use forçado**, o mesmo padrão
- * já usado pela busca semântica e pela enquete. Não há parsing de texto para dar
- * errado. O que foi portado do original é a **validação Zod + 1 retry
- * semântico**, que protege contra saída bem-formada mas fora do contrato.
+ * A saída vem por **tool use forçado** na Anthropic e por **JSON mode** no
+ * Gemini (ver `LlmProvider`/`GeminiProvider`). O que garante a qualidade aqui
+ * é a **validação Zod + 1 retry semântico**, que protege contra saída
+ * bem-formada mas fora do contrato, independente de qual provider respondeu.
  */
 @Injectable()
 export class IaJsonService {
   private readonly logger = new Logger(IaJsonService.name);
-  private readonly client: Anthropic | null;
-  private readonly model: string;
 
-  constructor(config: ConfigService) {
-    const apiKey = config.get<string>("ANTHROPIC_API_KEY");
-    this.model = config.get<string>("ANTHROPIC_MODEL") || DEFAULT_MODEL;
-    this.client = apiKey ? new Anthropic({ apiKey }) : null;
-    if (!this.client) {
-      this.logger.warn(
-        "ANTHROPIC_API_KEY ausente — geração de materiais indisponível (503).",
-      );
-    }
-  }
+  constructor(
+    private readonly config: ConfigService,
+    @Inject(LLM_PROVIDER) private readonly llmProvider: LlmProvider,
+  ) {}
 
   get enabled(): boolean {
-    return this.client !== null;
+    return isLlmConfigured(this.config);
   }
 
   async gerar<T>(opts: GerarJsonOpts<T>): Promise<T> {
-    if (!this.client) {
+    if (!this.enabled) {
       throw new ServiceUnavailableException(
-        "Geração por IA indisponível: configure ANTHROPIC_API_KEY.",
+        "Geração por IA indisponível: configure GEMINI_API_KEY ou ANTHROPIC_API_KEY.",
       );
     }
 
@@ -89,30 +84,18 @@ export class IaJsonService {
     opts: GerarJsonOpts<T>,
     erroAnterior: string,
   ): Promise<unknown> {
-    const client = this.client as Anthropic;
-    const tool: Anthropic.Tool = {
-      name: opts.toolName,
-      description: opts.toolDescription,
-      input_schema: opts.inputSchema,
-    };
-
     const userPrompt = erroAnterior
       ? `${opts.userPrompt}\n\nA tentativa anterior foi rejeitada por: ${erroAnterior}. Corrija exatamente esses pontos.`
       : opts.userPrompt;
 
-    const response = await client.messages.create({
-      model: this.model,
-      max_tokens: opts.maxTokens ?? MAX_TOKENS,
-      system: opts.systemPrompt,
-      tools: [tool],
-      tool_choice: { type: "tool", name: opts.toolName },
-      messages: [{ role: "user", content: userPrompt }],
+    return this.llmProvider.generateStructured({
+      systemPrompt: opts.systemPrompt,
+      userPrompt,
+      toolName: opts.toolName,
+      toolDescription: opts.toolDescription,
+      inputSchema: opts.inputSchema,
+      maxTokens: opts.maxTokens,
+      label: opts.toolName,
     });
-
-    const toolUse = response.content.find(
-      (b): b is Anthropic.ToolUseBlock =>
-        b.type === "tool_use" && b.name === opts.toolName,
-    );
-    return toolUse?.input ?? {};
   }
 }

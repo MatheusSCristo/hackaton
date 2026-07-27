@@ -19,7 +19,6 @@ import {
   EyeOff,
   Flag,
   LogIn,
-  MonitorPlay,
   Radio,
   RefreshCw,
   Square,
@@ -27,6 +26,7 @@ import {
 } from "lucide-react";
 
 import { BLOCO_META, momentoDoTipo } from "../aula/blocoMeta";
+import { PresentationViewer } from "../aula/presentation";
 import { useApresentacaoSync } from "@/hooks/useApresentacaoSync";
 import type {
   EnqueteProjecao,
@@ -113,20 +113,6 @@ export default function ApresentarPage() {
     if (!alvo) return;
     atualizar({ passo, slide: 0, projetarDados: false });
     liberarEtapa(alvo);
-  };
-
-  /**
-   * `sessionStorage` é **por aba**: a janela de projeção nasce sem o token e
-   * levaria 401 em toda chamada. Repassamos pela URL — o boot captura
-   * `?accessToken=`, persiste e limpa a barra de endereço (ver `accessToken.ts`).
-   */
-  const abrirProjecao = () => {
-    const token = getAccessToken();
-    const url = token
-      ? `/aulas/${aulaId}/projetar?accessToken=${encodeURIComponent(token)}`
-      : `/aulas/${aulaId}/projetar`;
-
-    window.open(url, "p360-projecao", "noopener,width=1280,height=720");
   };
 
   // Sem token não há o que apresentar: toda chamada daria 401. Melhor explicar
@@ -217,14 +203,6 @@ export default function ApresentarPage() {
                 {live.conectados ?? sessao?.participantes ?? 0} na sala
               </Text>
             </Flex>
-            <CustomButton
-              variant="outline"
-              icon={MonitorPlay}
-              size="sm"
-              onClick={abrirProjecao}
-            >
-              Abrir projeção
-            </CustomButton>
           </HStack>
         </Flex>
       </Box>
@@ -373,7 +351,11 @@ function EtapaAtual({
   return <Aviso texto="Esta etapa não tem controle próprio." />;
 }
 
-/** Slides: navegação + notas do apresentador (que a turma não vê). */
+/**
+ * Slides: mesmo preview do cockpit (imagem de fundo, imagens dos tópicos,
+ * miniaturas), só que com a navegação sincronizada com a projeção — por isso
+ * `activeIndex`/`onIndexChange` em vez do índice interno do viewer.
+ */
 function ControleSlides({
   bloco,
   estado,
@@ -385,31 +367,25 @@ function ControleSlides({
 }) {
   const apresentacao = bloco.output?.apresentacao as Apresentacao | undefined;
   const slides = apresentacao?.slides ?? [];
-  const slide = slides[Math.min(estado.slide, Math.max(0, slides.length - 1))];
+  const indiceAtual = Math.min(estado.slide, Math.max(0, slides.length - 1));
+  const slide = slides[indiceAtual];
 
-  if (!slide) {
+  if (!apresentacao || !slide) {
     return (
       <Aviso texto="Slides ainda não gerados. Gere no cockpit primeiro." />
     );
   }
 
   return (
-    <Painel titulo="Slides" badge={`${estado.slide + 1} / ${slides.length}`}>
-      <Heading size="md" color="gray.900" mb="2">
-        {slide.title}
-      </Heading>
-      {slide.content.length > 0 && (
-        <Stack gap="1.5" mb="4">
-          {slide.content.map((b, i) => (
-            <Text key={i} fontSize="sm" color="gray.600">
-              • {b}
-            </Text>
-          ))}
-        </Stack>
-      )}
+    <Painel titulo="Slides" badge={`${indiceAtual + 1} / ${slides.length}`}>
+      <PresentationViewer
+        presentation={apresentacao}
+        activeIndex={indiceAtual}
+        onIndexChange={(indice) => atualizar({ slide: indice })}
+      />
 
       {slide.speakerNotes && (
-        <Box bg="yellow.50" borderRadius="md" p="3" mb="4">
+        <Box bg="yellow.50" borderRadius="md" p="3" mt="4" mb="4">
           <Text fontSize="2xs" fontWeight="semibold" color="yellow.800" mb="1">
             Suas notas (a turma não vê)
           </Text>
@@ -419,13 +395,13 @@ function ControleSlides({
         </Box>
       )}
 
-      <HStack gap="2">
+      <Flex justify="space-between" mt="4">
         <CustomButton
           variant="outline"
           icon={ChevronLeft}
           size="sm"
-          disabled={estado.slide === 0}
-          onClick={() => atualizar({ slide: estado.slide - 1 })}
+          disabled={indiceAtual === 0}
+          onClick={() => atualizar({ slide: indiceAtual - 1 })}
         >
           Slide anterior
         </CustomButton>
@@ -433,12 +409,12 @@ function ControleSlides({
           variant="solid"
           icon={ChevronRight}
           size="sm"
-          disabled={estado.slide >= slides.length - 1}
-          onClick={() => atualizar({ slide: estado.slide + 1 })}
+          disabled={indiceAtual >= slides.length - 1}
+          onClick={() => atualizar({ slide: indiceAtual + 1 })}
         >
           Próximo slide
         </CustomButton>
-      </HStack>
+      </Flex>
     </Painel>
   );
 }

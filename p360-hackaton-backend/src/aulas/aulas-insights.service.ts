@@ -1,41 +1,40 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import Anthropic from "@anthropic-ai/sdk";
 
+import {
+  isLlmConfigured,
+  LLM_PROVIDER,
+  LlmJsonSchema,
+  LlmProvider,
+} from "../llm/llm-provider.interface";
 import { AulasService } from "./aulas.service";
 import type { DicaIA, InsightsDto } from "./dto/aula-response.dto";
 
-const DEFAULT_MODEL = "claude-haiku-4-5";
 const TOOL_NAME = "registrar_dicas";
 
-const SELECT_TOOL: Anthropic.Tool = {
-  name: TOOL_NAME,
-  description:
-    "Registra 3 a 4 dicas pedagógicas do que o professor deve reforçar/ensinar a seguir.",
-  input_schema: {
-    type: "object",
-    properties: {
-      dicas: {
-        type: "array",
-        items: {
-          type: "object",
-          properties: {
-            titulo: { type: "string", description: "Título curto da dica." },
-            texto: {
-              type: "string",
-              description: "1–2 frases acionáveis para o professor.",
-            },
-            prioridade: {
-              type: "string",
-              enum: ["alta", "media", "baixa"],
-            },
+const DICAS_SCHEMA: LlmJsonSchema = {
+  type: "object",
+  properties: {
+    dicas: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          titulo: { type: "string", description: "Título curto da dica." },
+          texto: {
+            type: "string",
+            description: "1–2 frases acionáveis para o professor.",
           },
-          required: ["titulo", "texto", "prioridade"],
+          prioridade: {
+            type: "string",
+            enum: ["alta", "media", "baixa"],
+          },
         },
+        required: ["titulo", "texto", "prioridade"],
       },
     },
-    required: ["dicas"],
   },
+  required: ["dicas"],
 };
 
 const SYSTEM_PROMPT =
@@ -48,17 +47,12 @@ const SYSTEM_PROMPT =
 @Injectable()
 export class AulasInsightsService {
   private readonly logger = new Logger(AulasInsightsService.name);
-  private readonly client: Anthropic | null;
-  private readonly model: string;
 
   constructor(
-    config: ConfigService,
+    private readonly config: ConfigService,
+    @Inject(LLM_PROVIDER) private readonly llmProvider: LlmProvider,
     private readonly aulas: AulasService,
-  ) {
-    const apiKey = config.get<string>("ANTHROPIC_API_KEY");
-    this.model = config.get<string>("ANTHROPIC_MODEL") || DEFAULT_MODEL;
-    this.client = apiKey ? new Anthropic({ apiKey }) : null;
-  }
+  ) {}
 
   async generate(professorId: string): Promise<InsightsDto> {
     const aulas = await this.aulas.listByProfessor(professorId);
@@ -87,35 +81,29 @@ export class AulasInsightsService {
       })
       .join("\n");
 
-    if (!this.client) {
+    if (!isLlmConfigured(this.config)) {
       return { ia: false, dicas: this.heuristica(aulas) };
     }
 
     try {
-      const response = await this.client.messages.create({
-        model: this.model,
-        max_tokens: 1024,
-        system: SYSTEM_PROMPT,
-        tools: [SELECT_TOOL],
-        tool_choice: { type: "tool", name: TOOL_NAME },
-        messages: [
-          {
-            role: "user",
-            content: `Aulas do professor e desempenho da turma:\n${resumo}\n\nGere 3 a 4 dicas.`,
-          },
-        ],
-      });
-      const toolUse = response.content.find(
-        (b): b is Anthropic.ToolUseBlock =>
-          b.type === "tool_use" && b.name === TOOL_NAME,
-      );
-      const dicas = (toolUse?.input as { dicas?: DicaIA[] } | undefined)?.dicas;
+      const parsed = (await this.llmProvider.generateStructured({
+        systemPrompt: SYSTEM_PROMPT,
+        userPrompt: `Aulas do professor e desempenho da turma:\n${resumo}\n\nGere 3 a 4 dicas.`,
+        toolName: TOOL_NAME,
+        toolDescription:
+          "Registra 3 a 4 dicas pedagógicas do que o professor deve reforçar/ensinar a seguir.",
+        inputSchema: DICAS_SCHEMA,
+        maxTokens: 1024,
+        label: TOOL_NAME,
+      })) as { dicas?: DicaIA[] };
+
+      const dicas = parsed.dicas;
       if (dicas && dicas.length > 0) {
         return { ia: true, dicas };
       }
       return { ia: false, dicas: this.heuristica(aulas) };
     } catch (error) {
-      this.logger.error(`Falha ao gerar dicas (Claude): ${String(error)}`);
+      this.logger.error(`Falha ao gerar dicas (LLM): ${String(error)}`);
       return { ia: false, dicas: this.heuristica(aulas) };
     }
   }

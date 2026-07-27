@@ -7,6 +7,7 @@ export const TIPOS_BLOCO = [
   "enquete",
   "simulado",
   "resumo",
+  "material_complementar",
   "reforco",
 ] as const;
 export type TipoBloco = (typeof TIPOS_BLOCO)[number];
@@ -18,6 +19,7 @@ export const TIPOS_BLOCO_HABILITADOS: readonly TipoBloco[] = [
   "caso",
   "simulado",
   "resumo",
+  "material_complementar",
 ];
 
 export type FocoEnquete = "geral" | "fraquezas";

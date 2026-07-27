@@ -59,10 +59,13 @@ const N_PERGUNTAS_OPTIONS = [3, 5, 8, 10].map((n) => ({
 }));
 
 interface MateriaisTabProps {
-  onNext?: () => void;
+  /** Salva a aula E dispara a geração de todos os materiais de uma vez. */
+  onCriarEGerarTudo: () => void | Promise<void>;
 }
 
-export default function MateriaisTab({ onNext }: MateriaisTabProps) {
+export default function MateriaisTab({
+  onCriarEGerarTudo,
+}: MateriaisTabProps) {
   const {
     selectedCaseId,
     tema,
@@ -103,6 +106,7 @@ export default function MateriaisTab({ onNext }: MateriaisTabProps) {
   }
 
   return (
+    <>
     <Grid
       templateColumns={{ base: "1fr", lg: "minmax(0, 1fr) 320px" }}
       gap="5"
@@ -127,7 +131,7 @@ export default function MateriaisTab({ onNext }: MateriaisTabProps) {
           </Text>
 
           <SimpleGrid columns={{ base: 1, md: 2, xl: 3 }} gap="3">
-            {(templates ?? []).map((template) => {
+            {(Array.isArray(templates) ? templates : []).map((template) => {
               const ativo = templateId === template.id;
               return (
                 <Box
@@ -225,19 +229,10 @@ export default function MateriaisTab({ onNext }: MateriaisTabProps) {
             </HStack>
           )}
 
-          <Text fontSize="xs" color="gray.500" mb="4">
-            Depois de <b>salvar a aula</b>, você gera o conteúdo de cada bloco e
-            conduz a sessão.
+          <Text fontSize="xs" color="gray.500">
+            Revise a sequência acima. O botão de criar fica no rodapé da
+            página.
           </Text>
-
-          <CustomButton
-            variant="solid"
-            icon={Sparkles}
-            onClick={onNext}
-            disabled={blocos.length === 0}
-          >
-            Continuar
-          </CustomButton>
         </Box>
 
         <Box
@@ -268,6 +263,19 @@ export default function MateriaisTab({ onNext }: MateriaisTabProps) {
         </Box>
       </Stack>
     </Grid>
+
+      {/* ---------------- Ações ---------------- */}
+      <Flex justify="flex-end" mt="6">
+        <CustomButton
+          variant="solid"
+          icon={Sparkles}
+          onClick={onCriarEGerarTudo}
+          disabled={blocos.length === 0}
+        >
+          Criar aula e gerar materiais
+        </CustomButton>
+      </Flex>
+    </>
   );
 }
 

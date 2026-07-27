@@ -76,6 +76,16 @@ export class AulasController {
     return this.aulasService.findOne(requireProfessorId(user), aulaId);
   }
 
+  /** Remove a aula (e blocos/materiais/sessões dela) da listagem do professor. */
+  @Delete(":id")
+  @HttpCode(204)
+  async remove(
+    @Param("id") aulaId: string,
+    @LegacyUser() user: LegacyTokenInfo | undefined,
+  ): Promise<void> {
+    await this.aulasService.remove(requireProfessorId(user), aulaId);
+  }
+
   // ------------------------------------------------------------------
   // Blocos — a sequência da sessão. Ordem livre; templates são só semente.
   // ------------------------------------------------------------------
