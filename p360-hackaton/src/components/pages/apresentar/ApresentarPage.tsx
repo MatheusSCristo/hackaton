@@ -13,6 +13,7 @@ import {
 } from "@cursosactive/p360-new-ui";
 import {
   ArrowLeft,
+  BookOpenCheck,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -25,11 +26,15 @@ import {
   PlayCircle,
   Radio,
   RefreshCw,
+  Settings2,
   Square,
   Users,
 } from "lucide-react";
 
 import { BLOCO_META, momentoDoTipo } from "../aula/blocoMeta";
+import CasoBloco from "../aula/CasoBloco";
+import EnqueteBloco from "../aula/EnqueteBloco";
+import MaterialBloco from "../aula/MaterialBloco";
 import { useApresentacaoSync } from "@/hooks/useApresentacaoSync";
 import type {
   EnqueteProjecao,
@@ -53,6 +58,7 @@ import { useEnqueteLive } from "@/hooks/useEnqueteLive";
 import { usePrepararAula } from "@/hooks/usePreparacao";
 import { useSessaoLive } from "@/hooks/useSessaoLive";
 import type { Bloco } from "@/services/blocos";
+import type { EstadoSessao } from "@/services/sessao";
 import type { Apresentacao } from "@/services/materiais";
 import type { TipoBloco } from "@/services/blocos";
 import { getAccessToken } from "@/utils/accessToken";
@@ -66,8 +72,10 @@ import { irParaLogin } from "@/utils/login";
  * antes de decidir projetá-los**.
  *
  * Avançar de etapa faz duas coisas de uma vez: move a projeção e **libera o
- * bloco para a turma** (o mesmo caminho do cockpit, então a sala do aluno reage
- * pelo socket da sessão).
+ * bloco para a turma** — a sala do aluno reage pelo socket da sessão.
+ *
+ * Esta é a única tela da aula: não existe mais uma tela de preparação separada.
+ * O que era dela vive aqui em "Ajustar <etapa>" e na seção de pós-aula.
  */
 export default function ApresentarPage() {
   const { aulaId } = useParams<{ aulaId: string }>();
@@ -225,10 +233,10 @@ export default function ApresentarPage() {
               color="gray.500"
               cursor="pointer"
               _hover={{ color: "gray.700" }}
-              onClick={() => navigate(`/aulas/${aulaId}`)}
+              onClick={() => navigate("/")}
             >
               <ArrowLeft size={14} />
-              <Text fontSize="sm">Voltar à aula</Text>
+              <Text fontSize="sm">Minhas aulas</Text>
             </Flex>
             <Heading size="md" color="gray.900">
               {aula?.titulo ?? "Apresentação"}
@@ -331,17 +339,26 @@ export default function ApresentarPage() {
           </HStack>
 
           {sequencia.length === 0 ? (
-            <Aviso texto="Esta aula não tem blocos de sessão. Adicione slides, caso ou enquete na aba Materiais." />
+            <Aviso texto="Esta aula não tem blocos de sessão. Adicione slides, caso ou enquete ao criar a aula." />
           ) : estado.finalizada ? (
             <Aviso texto="Sessão encerrada. A projeção está mostrando a tela de fechamento." />
           ) : (
-            <EtapaAtual
-              aulaId={aulaId as string}
-              bloco={bloco}
-              estado={estado}
-              atualizar={atualizar}
-              sessaoId={sessao?.sessaoId}
-            />
+            <>
+              <EtapaAtual
+                aulaId={aulaId as string}
+                bloco={bloco}
+                estado={estado}
+                atualizar={atualizar}
+                sessaoId={sessao?.sessaoId}
+              />
+              {bloco && (
+                <AjustesDaEtapa
+                  aulaId={aulaId as string}
+                  bloco={bloco}
+                  sessao={sessao}
+                />
+              )}
+            </>
           )}
 
           {/* Navegação */}
@@ -385,8 +402,142 @@ export default function ApresentarPage() {
               </CustomButton>
             )}
           </Flex>
+
+          <PosAula aulaId={aulaId as string} blocos={blocos ?? []} />
         </Box>
       </Box>
+    </Box>
+  );
+}
+
+/**
+ * Ajustes da etapa atual — o que antes vivia na tela de preparação.
+ *
+ * Fica recolhido por padrão: durante a aula o professor quer conduzir, não
+ * configurar. Mas ter isso aqui é o que permite não existir uma segunda tela —
+ * se a IA gerou um slide ruim, dá para regerar sem sair da apresentação.
+ */
+function AjustesDaEtapa({
+  aulaId,
+  bloco,
+  sessao,
+}: {
+  aulaId: string;
+  bloco: Bloco;
+  sessao: EstadoSessao | null;
+}) {
+  const [aberto, setAberto] = useState(false);
+  const meta = BLOCO_META[bloco.tipo as TipoBloco];
+
+  const temAjuste =
+    bloco.tipo === "caso" ||
+    bloco.tipo === "enquete" ||
+    bloco.tipo === "slides";
+  if (!temAjuste) return null;
+
+  return (
+    <Box mt="4">
+      <CustomButton
+        variant="ghost"
+        icon={Settings2}
+        size="sm"
+        onClick={() => setAberto((v) => !v)}
+      >
+        {aberto ? "Ocultar ajustes" : `Ajustar ${meta?.titulo ?? bloco.tipo}`}
+      </CustomButton>
+
+      {aberto && (
+        <Box
+          bg="white"
+          borderWidth="1px"
+          borderColor="gray.200"
+          borderRadius="xl"
+          p={{ base: 4, md: 5 }}
+          mt="2"
+        >
+          {bloco.tipo === "slides" && (
+            <MaterialBloco
+              aulaId={aulaId}
+              bloco={bloco}
+              tipo="slides"
+              liberado={false}
+            />
+          )}
+          {bloco.tipo === "caso" && (
+            <CasoBloco
+              aulaId={aulaId}
+              bloco={bloco}
+              sessao={sessao}
+              liberado={false}
+            />
+          )}
+          {bloco.tipo === "enquete" && (
+            <EnqueteBloco aulaId={aulaId} bloco={bloco} />
+          )}
+        </Box>
+      )}
+    </Box>
+  );
+}
+
+/**
+ * Pós-aula (simulado, resumo): fica no fim porque **não** faz parte da sessão —
+ * é o que o aluno faz em casa. Mas precisa morar em algum lugar, e agora a
+ * apresentação é o único lugar da aula.
+ */
+function PosAula({ aulaId, blocos }: { aulaId: string; blocos: Bloco[] }) {
+  const [aberto, setAberto] = useState(false);
+  const posAula = blocos.filter((b) => momentoDoTipo(b.tipo) === "pos_aula");
+  if (posAula.length === 0) return null;
+
+  return (
+    <Box mt="8" pt="6" borderTopWidth="1px" borderColor="gray.200">
+      <Flex align="center" justify="space-between" gap="3" wrap="wrap">
+        <Box>
+          <Heading size="sm" color="gray.800">
+            Pós-aula · fixação de conteúdo
+          </Heading>
+          <Text fontSize="xs" color="gray.500">
+            Não entra na sessão: é o que o aluno faz em casa.
+          </Text>
+        </Box>
+        <CustomButton
+          variant="outline"
+          icon={aberto ? EyeOff : BookOpenCheck}
+          size="sm"
+          onClick={() => setAberto((v) => !v)}
+        >
+          {aberto ? "Ocultar" : `Ver ${posAula.length} material(is)`}
+        </CustomButton>
+      </Flex>
+
+      {aberto && (
+        <Stack gap="4" mt="4">
+          {posAula.map((b) => {
+            const meta = BLOCO_META[b.tipo as TipoBloco];
+            return (
+              <Box
+                key={b.id}
+                bg="white"
+                borderWidth="1px"
+                borderColor="gray.200"
+                borderRadius="xl"
+                p={{ base: 4, md: 5 }}
+              >
+                <Heading size="xs" color="gray.900" mb="3">
+                  {meta?.titulo ?? b.tipo}
+                </Heading>
+                <MaterialBloco
+                  aulaId={aulaId}
+                  bloco={b}
+                  tipo={b.tipo as "simulado" | "resumo"}
+                  liberado={false}
+                />
+              </Box>
+            );
+          })}
+        </Stack>
+      )}
     </Box>
   );
 }

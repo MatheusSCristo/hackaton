@@ -251,7 +251,7 @@ function AulaCard({ aula }: { aula: Aula }) {
       cursor="pointer"
       transition="border-color 0.15s, box-shadow 0.15s"
       _hover={{ borderColor: "blue.300", boxShadow: "sm" }}
-      onClick={() => navigate(`/aulas/${aula.id}`)}
+      onClick={() => navigate(`/aulas/${aula.id}/apresentar`)}
     >
       <Text fontSize="xs" color="gray.400" mb="0.5">
         {data}

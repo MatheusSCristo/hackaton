@@ -101,7 +101,7 @@ export default function AulaConectadaPage() {
           reset();
           // Vai direto ao cockpit: é lá que o professor gera o conteúdo dos
           // blocos e conduz a sessão.
-          navigate(`/aulas/${aula.id}`);
+          navigate(`/aulas/${aula.id}/apresentar`);
         },
       },
     );
