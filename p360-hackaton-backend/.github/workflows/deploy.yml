@@ -1,0 +1,149 @@
+name: Deploy Argo CD Hackaton Backend
+
+on:
+  push:
+    branches:
+      - develop
+      - main
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: p360-hackaton-backend
+  ECR_MIGRATIONS_REPOSITORY: p360-hackaton-backend-migrations
+
+  # GitOps
+  K8S_GITOPS_REPO: paciente360/k8s-p360
+
+jobs:
+  build:
+    name: Deployment
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Set short git commit SHA
+        id: commit
+        uses: prompt/actions-commit-hash@v3
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Define IMAGE_TAG based on branch
+        run: |
+          if [[ "${GITHUB_REF_NAME}" == "main" ]]; then
+            TAG="v$(date +'%Y.%m.%d').${{ steps.commit.outputs.short }}"
+            echo "IMAGE_TAG=$TAG" >> $GITHUB_ENV
+          else
+            echo "IMAGE_TAG=${{ steps.commit.outputs.short }}" >> $GITHUB_ENV
+          fi
+
+      - name: Define GitOps path based on branch
+        run: |
+          if [[ "${GITHUB_REF_NAME}" == "main" ]]; then
+            echo "K8S_APP_PATH=clusters/prod/p360-hackaton-backend" >> $GITHUB_ENV
+          else
+            echo "K8S_APP_PATH=clusters/dev/p360-hackaton-backend" >> $GITHUB_ENV
+          fi
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build runtime image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          docker build \
+            --target runtime \
+            -t ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG} \
+            -f Dockerfile .
+
+      - name: Build migrations image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          docker build \
+            --target migrations \
+            -t ${ECR_REGISTRY}/${ECR_MIGRATIONS_REPOSITORY}:migrations-${IMAGE_TAG} \
+            -f Dockerfile .
+
+      - name: Push runtime image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}
+
+      - name: Push migrations image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          docker push ${ECR_REGISTRY}/${ECR_MIGRATIONS_REPOSITORY}:migrations-${IMAGE_TAG}
+
+      - name: Create Git Tag (main only)
+        if: github.ref_name == 'main'
+        run: |
+          git tag ${IMAGE_TAG}
+          git push origin ${IMAGE_TAG}
+
+      - name: Checkout GitOps repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.K8S_GITOPS_REPO }}
+          token: ${{ secrets.GITOPS_TOKEN }}
+          path: gitops
+
+      - name: Update image in kustomization (GitOps PR)
+        env:
+          GH_TOKEN: ${{ secrets.GITOPS_TOKEN }}
+        run: |
+          BRANCH="deploy/${GITHUB_REF_NAME}/${IMAGE_TAG}"
+
+          cd gitops
+          git checkout -b "$BRANCH"
+
+          cd "${K8S_APP_PATH}"
+
+          yq -i '
+            .images = [
+              {
+                "name":"279600712727.dkr.ecr.us-east-1.amazonaws.com/p360-hackaton-backend",
+                "newTag":"'"${IMAGE_TAG}"'"
+              },
+              {
+                "name":"279600712727.dkr.ecr.us-east-1.amazonaws.com/p360-hackaton-backend-migrations",
+                "newTag":"migrations-'"${IMAGE_TAG}"'"
+              }
+            ]
+          ' kustomization.yaml
+
+          git config user.name "gitops-bot"
+          git config user.email "gitops@paciente360.com.br"
+
+          git add kustomization.yaml
+
+          git commit -m "Deploy(${GITHUB_REF_NAME}): update p360-hackaton-backend to ${IMAGE_TAG}"
+
+          git push origin "$BRANCH"
+
+          gh pr create \
+            --repo $K8S_GITOPS_REPO \
+            --base "main" \
+            --head "$BRANCH" \
+            --title "Deploy(${GITHUB_REF_NAME}): p360-hackaton-backend ${IMAGE_TAG}" \
+            --body "PR automático via pipeline GitOps"
+
+          PR_NUMBER=$(gh pr list \
+            --repo $K8S_GITOPS_REPO \
+            --head "$BRANCH" \
+            --json number -q '.[0].number')
+
+          gh pr merge "$PR_NUMBER" \
+            --repo $K8S_GITOPS_REPO \
+            --auto \
+            --squash

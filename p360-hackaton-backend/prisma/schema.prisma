@@ -1,0 +1,249 @@
+// Prisma schema — p360-hackaton-backend
+// Docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = ["public", "plano_aula"]
+}
+
+// -----------------------------------------------------------------------
+// Planos de aula ("Aula conectada") criados pelo professor + métricas de
+// desempenho (mock nesta fase) e materiais selecionados.
+// -----------------------------------------------------------------------
+
+model Aula {
+  id           String   @id @default(uuid())
+  /// Usuário professor (id do token legado).
+  professorId  String   @map("professor_id")
+  /// Empresa/universidade do professor.
+  empId        Int?     @map("emp_id")
+  titulo       String
+  /// Ponto de partida: "caso" | "tema".
+  modo         String
+  casoLegacyId Int?     @map("caso_legacy_id")
+  casoTitulo   String?  @map("caso_titulo")
+  tema         String?
+  publico      String?
+  duracao      String?
+  formato      String?
+  objetivos    String?
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  materiais AulaMaterial[]
+  metrica   AulaMetrica?
+  blocos    AulaBloco[]
+  sessoes   SessaoAula[]
+
+  @@index([professorId])
+  @@map("aulas")
+  @@schema("plano_aula")
+}
+
+/// Execução ao vivo de uma aula. O aluno entra por `codigo` e acompanha tudo
+/// numa página só; o professor controla qual bloco está liberado.
+///
+/// O estado aqui é **autoritativo**: o socket só transporta. É isso que permite
+/// F5 do professor, aluno entrando atrasado e reconexão sem perder o fio.
+model SessaoAula {
+  id          String  @id @default(uuid())
+  aulaId      String  @map("aula_id")
+  professorId String  @map("professor_id")
+  empId       Int?    @map("emp_id")
+  /// Código curto de entrada do aluno.
+  codigo      String  @unique
+  /// aguardando | ativa | encerrada
+  status      String  @default("aguardando")
+  /// Bloco liberado neste momento (null = nenhum).
+  blocoAtualId String? @map("bloco_atual_id")
+  /// Estado do bloco atual: liberado | encerrado
+  estadoAtual  String? @map("estado_atual")
+
+  startedAt DateTime? @map("started_at")
+  endedAt   DateTime? @map("ended_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  aula          Aula                 @relation(fields: [aulaId], references: [id], onDelete: Cascade)
+  participantes SessaoParticipante[]
+
+  @@index([aulaId])
+  @@map("sessoes_aula")
+  @@schema("plano_aula")
+}
+
+/// Tentativa de um aluno no simulado de um bloco.
+///
+/// As **questões** ficam em `AulaBloco.output.simulado` (JSON) — só a tentativa
+/// vira tabela, porque precisa de unicidade por aluno e consulta por bloco.
+/// Uma tentativa por aluno por bloco (`@@unique`), como no projeto de origem.
+model SimuladoTentativa {
+  id        String @id @default(uuid())
+  blocoId   String @map("bloco_id")
+  /// Id do usuário no legado (nunca o token).
+  usuarioId String @map("usuario_id")
+  nome      String?
+  /// Respostas: [{ questaoIndex, alternativaLabel }].
+  respostas Json
+  acertos   Int
+  total     Int
+  /// Percentual de acerto (0–100).
+  percentual Int
+
+  submittedAt DateTime @default(now()) @map("submitted_at")
+
+  bloco AulaBloco @relation(fields: [blocoId], references: [id], onDelete: Cascade)
+
+  @@unique([blocoId, usuarioId])
+  @@index([blocoId])
+  @@map("simulado_tentativas")
+  @@schema("plano_aula")
+}
+
+/// Vínculo caso↔"curso contêiner" no legado.
+///
+/// O caso avulso (`/caso/play/:id`) **não** grava casolog/casotime/caseevent —
+/// só o fluxo de curso grava. Por isso cada caso roda dentro de um curso
+/// técnico e invisível, criado uma vez por (caso, empresa) e reutilizado.
+model CursoWrapper {
+  id            String   @id @default(uuid())
+  casoLegacyId  Int      @map("caso_legacy_id")
+  empId         Int      @map("emp_id")
+  cursoLegacyId Int      @map("curso_legacy_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@unique([casoLegacyId, empId])
+  @@map("curso_wrappers")
+  @@schema("plano_aula")
+}
+
+/// Auditoria de tudo que escrevemos no banco legado.
+///
+/// Escrever em banco compartilhado sem trilha deixa debug e rollback cegos — e
+/// aqui há efeitos com peso acadêmico (criar curso, matricular aluno, liberar
+/// conteúdo). Também é o material para limpar wrappers órfãos.
+model LegacyWriteLog {
+  id          String   @id @default(uuid())
+  sessaoId    String?  @map("sessao_id")
+  blocoId     String?  @map("bloco_id")
+  /// criar_wrapper | atribuir_turmacurso | liberar | encerrar | matricular_aluno
+  acao        String
+  /// curso | cursoaula | empresacurso | turmacurso | turmausuario
+  tabela      String
+  registroId  String?  @map("registro_id")
+  payload     Json
+  professorId String   @map("professor_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([sessaoId])
+  @@map("legacy_write_log")
+  @@schema("plano_aula")
+}
+
+/// Autorização de uso único para abrir o caso.
+///
+/// O legado não valida `turmacurso.status` no deep-link do player, então o gate
+/// efetivo é nosso: um nonce por (aluno, bloco), com expiração, consumido no
+/// redirect. Impede redistribuição do link e reentrada fora da janela.
+model CasoAcessoNonce {
+  id        String    @id @default(uuid())
+  nonce     String    @unique
+  sessaoId  String    @map("sessao_id")
+  blocoId   String    @map("bloco_id")
+  usuarioId String    @map("usuario_id")
+  expiraEm  DateTime  @map("expira_em")
+  usadoEm   DateTime? @map("usado_em")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@index([sessaoId, blocoId])
+  @@map("caso_acesso_nonces")
+  @@schema("plano_aula")
+}
+
+/// Quem está na sala. Resolve a identidade no escopo da sessão: para o caso o
+/// aluno precisa estar logado; para a enquete pode ser anônimo.
+model SessaoParticipante {
+  id       String  @id @default(uuid())
+  sessaoId String  @map("sessao_id")
+  /// Id do usuário legado, quando logado.
+  usuarioId String? @map("usuario_id")
+  nome      String?
+  /// Identificador de navegador, quando anônimo.
+  anonId    String? @map("anon_id")
+
+  joinedAt   DateTime @default(now()) @map("joined_at")
+  lastSeenAt DateTime @updatedAt @map("last_seen_at")
+
+  sessao SessaoAula @relation(fields: [sessaoId], references: [id], onDelete: Cascade)
+
+  @@unique([sessaoId, usuarioId])
+  @@unique([sessaoId, anonId])
+  @@index([sessaoId])
+  @@map("sessao_participantes")
+  @@schema("plano_aula")
+}
+
+/// Bloco (atividade) de uma sessão de aula. A ordem é livre: o professor monta
+/// a sequência que quiser, opcionalmente partindo de um template.
+///
+/// `output` é feed-forward: o resultado de um bloco (ex.: o diagnóstico da IA
+/// sobre o desempenho no caso) fica disponível para os blocos seguintes — é o
+/// que permite encadeamento sem engessar a ordem.
+model AulaBloco {
+  id     String @id @default(uuid())
+  aulaId String @map("aula_id")
+  ordem  Int
+  /// slides | caso | enquete | reforco
+  tipo   String
+  /// template | manual
+  origem String @default("manual")
+  /// Configuração do bloco (varia por tipo). Ex. enquete:
+  /// { foco: "geral"|"fraquezas", nPerguntas }.
+  config Json   @default("{}")
+  /// Resultado do bloco. Ex. enquete: { perguntas[], poll360PackageId, accessPin }.
+  output Json?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  aula       Aula                @relation(fields: [aulaId], references: [id], onDelete: Cascade)
+  tentativas SimuladoTentativa[]
+
+  @@index([aulaId])
+  @@map("aula_blocos")
+  @@schema("plano_aula")
+}
+
+model AulaMaterial {
+  id     String @id @default(uuid())
+  aulaId String @map("aula_id")
+  /// Tipo do material (ver tiposMaterial no front): ppt, quiz, simulado...
+  tipo   String
+
+  aula Aula @relation(fields: [aulaId], references: [id], onDelete: Cascade)
+
+  @@index([aulaId])
+  @@map("aula_materiais")
+  @@schema("plano_aula")
+}
+
+model AulaMetrica {
+  id              String @id @default(uuid())
+  aulaId          String @unique @map("aula_id")
+  alunosTotal     Int    @map("alunos_total")
+  alunosEngajados Int    @map("alunos_engajados")
+  /// Média de acertos da turma (0–100).
+  mediaAcertos    Int    @map("media_acertos")
+  /// Taxa de conclusão da aula/materiais (0–100).
+  taxaConclusao   Int    @map("taxa_conclusao")
+
+  aula Aula @relation(fields: [aulaId], references: [id], onDelete: Cascade)
+
+  @@map("aula_metricas")
+  @@schema("plano_aula")
+}

@@ -1,0 +1,259 @@
+import {
+  BadGatewayException,
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import axios, { AxiosError, type AxiosInstance } from "axios";
+
+import type { PerguntaEnquete } from "./enquete-ia.service";
+
+const API_PREFIX = "/api/v1/poll360";
+const PUBLIC_API_PREFIX = "/api/v1/public/poll360";
+
+export interface PacoteCriado {
+  packageId: string;
+  pollIds: string[];
+}
+
+export interface SessaoEnquete {
+  accessPin: string;
+  joinUrl: string;
+}
+
+/**
+ * Cliente REST do **poll360** (módulo de enquete do `p360-monolith`).
+ *
+ * O hackaton só **cria o conteúdo e abre a sessão**; a votação ao vivo
+ * (PIN/QR, resultados) continua rodando no próprio poll360, que já tem o
+ * realtime (`/ws/poll360`, Redis). Não duplicamos nada disso aqui.
+ *
+ * Auth: repassa o token legado do professor como o poll360 espera —
+ * `x-auth-token` + `x-auth-source: legacy`.
+ */
+@Injectable()
+export class Poll360Service {
+  private readonly logger = new Logger(Poll360Service.name);
+  private readonly http: AxiosInstance | null;
+  private readonly publicUrl: string | null;
+
+  constructor(config: ConfigService) {
+    const baseUrl =
+      config.get<string>("POLL360_API_URL") ||
+      config.get<string>("MONOLITH_BACKEND_URL");
+    this.publicUrl = config.get<string>("POLL360_PUBLIC_URL") ?? null;
+
+    if (!baseUrl) {
+      this.logger.warn(
+        "MONOLITH_BACKEND_URL/POLL360_API_URL ausente — publicação de enquete indisponível (503).",
+      );
+      this.http = null;
+      return;
+    }
+
+    this.http = axios.create({
+      baseURL: baseUrl.replace(/\/+$/, ""),
+      timeout: 15_000,
+    });
+  }
+
+  get enabled(): boolean {
+    return this.http !== null;
+  }
+
+  /**
+   * Cria um pacote e uma enquete por pergunta, com suas alternativas.
+   * O poll360 modela `Package (1) → Poll (N) → PollOption (N)`.
+   */
+  async criarPacote(
+    token: string,
+    packageName: string,
+    perguntas: PerguntaEnquete[],
+  ): Promise<PacoteCriado> {
+    const http = this.require();
+
+    const pacote = await this.post<{ id?: string }>(
+      http,
+      token,
+      `${API_PREFIX}/packages`,
+      {
+        packageName,
+        requireLogin: false,
+        requireEmail: false,
+        requireCrm: false,
+        requireProfession: false,
+      },
+    );
+
+    const packageId = extractId(pacote);
+    if (!packageId) {
+      throw new BadGatewayException(
+        "poll360 não retornou o id do pacote criado.",
+      );
+    }
+
+    const pollIds: string[] = [];
+    for (const [index, pergunta] of perguntas.entries()) {
+      const poll = await this.post<{ id?: string }>(
+        http,
+        token,
+        `${API_PREFIX}/packages/${packageId}/polls`,
+        {
+          title: tituloCurto(pergunta.enunciado),
+          questionText: pergunta.enunciado,
+          responseFormat: "UNIQUE",
+          displayOrder: index,
+        },
+      );
+
+      const pollId = extractId(poll);
+      if (!pollId) {
+        throw new BadGatewayException(
+          "poll360 não retornou o id da enquete criada.",
+        );
+      }
+      pollIds.push(pollId);
+
+      for (const [ordem, opcao] of pergunta.opcoes.entries()) {
+        await this.post(
+          http,
+          token,
+          `${API_PREFIX}/packages/${packageId}/polls/${pollId}/options`,
+          {
+            optionText: opcao.texto,
+            justification: opcao.justificativa,
+            isCorrect: opcao.correta,
+            gamificationPoints: opcao.pontos,
+            displayOrder: ordem,
+          },
+        );
+      }
+    }
+
+    return { packageId, pollIds };
+  }
+
+  /** Abre a sessão ao vivo: o poll360 gera o PIN de entrada dos alunos. */
+  async iniciarSessao(
+    token: string,
+    packageId: string,
+    pollId: string,
+  ): Promise<SessaoEnquete> {
+    const http = this.require();
+
+    const data = await this.post<{ accessPin?: string; pin?: string }>(
+      http,
+      token,
+      `${API_PREFIX}/sessions/start`,
+      { pollId, packageId },
+    );
+
+    const accessPin = data?.accessPin ?? data?.pin;
+    if (!accessPin) {
+      throw new BadGatewayException("poll360 não retornou o PIN da sessão.");
+    }
+
+    return { accessPin, joinUrl: this.joinUrl(accessPin) };
+  }
+
+  /**
+   * Pré-cria o respondente já vinculado ao aluno do P360.
+   *
+   * Sem isso o respondente do poll360 é anônimo e não haveria como cruzar a
+   * resposta da enquete com o desempenho do mesmo aluno no caso.
+   *
+   * ⚠️ Depende de o poll360 aceitar um `attendeeId` pré-existente na entrada da
+   * sala — a validar antes de prometer o cruzamento por aluno.
+   */
+  async criarAttendee(
+    accessPin: string,
+    usuarioId: string,
+  ): Promise<string | null> {
+    const http = this.require();
+
+    try {
+      const data = await this.post<{ id?: string }>(
+        http,
+        null,
+        `${PUBLIC_API_PREFIX}/attendees`,
+        {
+          pin: accessPin,
+          customData: [{ id: "p360_usu_id", value: usuarioId }],
+        },
+      );
+      return extractId(data);
+    } catch (error) {
+      // Identidade é um "nice to have": se falhar, a enquete segue anônima.
+      this.logger.warn(
+        `Não foi possível pré-criar o attendee no poll360: ${describe(error)}`,
+      );
+      return null;
+    }
+  }
+
+  /** URL pública de entrada do aluno (survey-frontend). */
+  joinUrl(accessPin: string): string {
+    const base = (this.publicUrl ?? "").replace(/\/+$/, "");
+    return base ? `${base}/join?pin=${encodeURIComponent(accessPin)}` : "";
+  }
+
+  private require(): AxiosInstance {
+    if (!this.http) {
+      throw new ServiceUnavailableException(
+        "Integração com o poll360 não configurada (MONOLITH_BACKEND_URL).",
+      );
+    }
+    return this.http;
+  }
+
+  private async post<T>(
+    http: AxiosInstance,
+    token: string | null,
+    url: string,
+    body: unknown,
+  ): Promise<T> {
+    try {
+      const response = await http.post<T>(url, body, {
+        headers: token
+          ? { "x-auth-token": token, "x-auth-source": "legacy" }
+          : undefined,
+      });
+      return response.data;
+    } catch (error) {
+      this.logger.error(`POST ${url} falhou: ${describe(error)}`);
+      throw new BadGatewayException(
+        `Falha ao comunicar com o poll360 (${url}).`,
+      );
+    }
+  }
+}
+
+/** O monolith às vezes devolve `{ data: {...} }`, às vezes o objeto puro. */
+function extractId(payload: unknown): string | null {
+  if (typeof payload !== "object" || payload === null) return null;
+  const obj = payload as Record<string, unknown>;
+  const direto = obj.id;
+  if (typeof direto === "string" && direto) return direto;
+  const aninhado = obj.data;
+  if (typeof aninhado === "object" && aninhado !== null) {
+    const id = (aninhado as Record<string, unknown>).id;
+    if (typeof id === "string" && id) return id;
+  }
+  return null;
+}
+
+function tituloCurto(enunciado: string): string {
+  const limpo = enunciado.trim();
+  return limpo.length <= 80 ? limpo : `${limpo.slice(0, 77)}...`;
+}
+
+function describe(error: unknown): string {
+  if (axios.isAxiosError(error)) {
+    const axiosError = error as AxiosError;
+    const status = axiosError.response?.status;
+    const data = axiosError.response?.data;
+    return `${status ?? "sem status"} ${data ? JSON.stringify(data).slice(0, 200) : axiosError.message}`;
+  }
+  return String(error);
+}
