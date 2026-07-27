@@ -1,0 +1,74 @@
+name: Deploy develop Hackaton
+
+on:
+  push:
+    branches: [develop]
+
+env:
+  BRANCH_NAME: develop
+
+  AWS_APLIFY_APP_ID: ""
+  AWS_APLIFY_BUCKET: s3://aws-amplify-deploy-v1
+  AWS_APLIFY_BUCKET_URL: https://aws-amplify-deploy-v1.s3.us-east-1.amazonaws.com
+
+  VITE_HACKATON_API_URL: https://p360-hackaton-api-dev.paciente360.com.br
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Cache node_modules dependencies
+        uses: actions/cache@v4
+        env:
+          node-cache-name: cache-node-modules
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-build-${{env.BRANCH_NAME}}-${{ env.node-cache-name }}-${{ hashFiles('**/package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-build-${{env.BRANCH_NAME}}-${{ env.node-cache-name }}
+            ${{ runner.os }}-build-
+            ${{ runner.os }}-
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Create env file
+        run: |
+          touch .env
+
+          echo "VITE_HACKATON_API_URL=${{env.VITE_HACKATON_API_URL}}" >> .env
+
+      - name: Build aplicattion
+        run: npm run build
+
+      - name: Create build file name
+        run: |
+          echo "build_file=${{ github.event.repository.name }}-${{env.BRANCH_NAME}}.zip" >> $GITHUB_ENV
+
+      - name: Zip build directory
+        run: |
+          cd dist
+          zip -r ${{ env.build_file }} .
+          mv ${{ env.build_file }} ../
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Copy to s3
+        run: aws s3 cp ${{ env.build_file }} ${{ env.AWS_APLIFY_BUCKET }}/${{ env.build_file }}
+
+      - name: Deploy to Amplify
+        run: |
+          aws amplify start-deployment \
+            --app-id ${{env.AWS_APLIFY_APP_ID}} \
+            --branch-name ${{env.BRANCH_NAME}} \
+            --source-url ${{env.AWS_APLIFY_BUCKET_URL}}/${{ env.build_file }}

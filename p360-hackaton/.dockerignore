@@ -1,0 +1,21 @@
+# Dependências
+node_modules
+
+# Arquivos de build
+dist
+build
+
+# Logs
+npm-debug.log*
+
+# Arquivos de ambiente
+.env
+.env.local
+
+# Git
+.git
+.gitignore
+
+# Docker
+Dockerfile
+docker-compose.yml

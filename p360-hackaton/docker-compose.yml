@@ -1,0 +1,13 @@
+version: "3.8"
+
+services:
+  app:
+    build: .
+    container_name: p360_hackaton_frontend
+    env_file:
+      - ./.env
+    ports:
+      - "${VITE_PORT}:${VITE_PORT}"
+    volumes:
+      - .:/app
+    command: sh -c "npm install && npm run dev -- --host"
