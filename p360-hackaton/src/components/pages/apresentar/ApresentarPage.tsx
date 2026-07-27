@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import {
   Badge,
@@ -13,13 +13,16 @@ import {
 } from "@cursosactive/p360-new-ui";
 import {
   ArrowLeft,
+  Check,
   ChevronLeft,
   ChevronRight,
+  Copy,
   Eye,
   EyeOff,
   Flag,
   LogIn,
   MonitorPlay,
+  PlayCircle,
   Radio,
   RefreshCw,
   Square,
@@ -47,6 +50,7 @@ import {
 } from "@/hooks/useCaso";
 import { useIniciarEnquete, usePublicarEnquete } from "@/hooks/useEnquete";
 import { useEnqueteLive } from "@/hooks/useEnqueteLive";
+import { usePrepararAula } from "@/hooks/usePreparacao";
 import { useSessaoLive } from "@/hooks/useSessaoLive";
 import type { Bloco } from "@/services/blocos";
 import type { Apresentacao } from "@/services/materiais";
@@ -79,6 +83,9 @@ export default function ApresentarPage() {
   const liberar = useLiberarBloco(aulaId);
   const liberarCaso = useLiberarCaso(aulaId);
   const encerrarSessao = useEncerrarSessao(aulaId);
+
+  const preparar = usePrepararAula(aulaId);
+  const [iniciada, setIniciada] = useState(false);
 
   const { estado, atualizar } = useApresentacaoSync(aulaId, "controle");
 
@@ -128,6 +135,35 @@ export default function ApresentarPage() {
 
     window.open(url, "p360-projecao", "noopener,width=1280,height=720");
   };
+
+  /**
+   * "Iniciar projeção": abre a janela do projetor **e** libera a primeira etapa
+   * para a turma. Antes eram duas ações separadas, e dava para ficar projetando
+   * sem que os alunos tivessem recebido nada.
+   */
+  const iniciar = () => {
+    abrirProjecao();
+    setIniciada(true);
+    irPara(estado.passo);
+  };
+
+  // Preparo de segurança: quem cai direto em /apresentar (link salvo, refresh)
+  // não passou pelo "Visualizar projeção" do overview. Uma tentativa só.
+  const preparouRef = useRef(false);
+  useEffect(() => {
+    if (preparouRef.current || !blocos) return;
+    const faltando = blocos.some(
+      (b) =>
+        (b.tipo === "slides" && !b.output?.apresentacao) ||
+        (b.tipo === "caso" && !b.output?.cursoLegacyId) ||
+        (b.tipo === "enquete" && !b.output?.poll360PackageId),
+    );
+    if (!faltando) return;
+    preparouRef.current = true;
+    preparar.mutate();
+    // Só quando a lista de blocos chega.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blocos]);
 
   // Sem token não há o que apresentar: toda chamada daria 401. Melhor explicar
   // do que deixar o console cuspindo Unauthorized.
@@ -192,7 +228,7 @@ export default function ApresentarPage() {
               onClick={() => navigate(`/aulas/${aulaId}`)}
             >
               <ArrowLeft size={14} />
-              <Text fontSize="sm">Voltar ao cockpit</Text>
+              <Text fontSize="sm">Voltar à aula</Text>
             </Flex>
             <Heading size="md" color="gray.900">
               {aula?.titulo ?? "Apresentação"}
@@ -217,13 +253,14 @@ export default function ApresentarPage() {
                 {live.conectados ?? sessao?.participantes ?? 0} na sala
               </Text>
             </Flex>
+            {sessao && <LinkDaTurma codigo={sessao.codigo} />}
             <CustomButton
-              variant="outline"
-              icon={MonitorPlay}
+              variant={iniciada ? "outline" : "solid"}
+              icon={iniciada ? MonitorPlay : PlayCircle}
               size="sm"
-              onClick={abrirProjecao}
+              onClick={iniciar}
             >
-              Abrir projeção
+              {iniciada ? "Reabrir projeção" : "Iniciar projeção"}
             </CustomButton>
           </HStack>
         </Flex>
@@ -231,6 +268,34 @@ export default function ApresentarPage() {
 
       <Box px={{ base: 4, md: 8 }} py="6">
         <Box maxW="1100px" mx="auto">
+          {/* Preparo automático: só aparece quando há algo a fazer/informar. */}
+          {(preparar.isPending || (preparar.data?.falhas ?? 0) > 0) && (
+            <Flex
+              align="center"
+              gap="2"
+              mb="4"
+              bg={preparar.isPending ? "blue.50" : "orange.50"}
+              borderWidth="1px"
+              borderColor={preparar.isPending ? "blue.200" : "orange.200"}
+              borderRadius="lg"
+              px="4"
+              py="3"
+            >
+              {preparar.isPending && <Spinner size="sm" color="blue.500" />}
+              <Text
+                fontSize="sm"
+                color={preparar.isPending ? "blue.800" : "orange.800"}
+              >
+                {preparar.isPending
+                  ? "Preparando a aula: gerando slides, caso e enquete que faltarem…"
+                  : `${preparar.data?.falhas} etapa(s) não ficaram prontas: ${preparar.data?.blocos
+                      .filter((b) => b.status === "falhou")
+                      .map((b) => `${b.tipo} (${b.erro ?? "erro"})`)
+                      .join("; ")}`}
+              </Text>
+            </Flex>
+          )}
+
           {/* Trilha de etapas */}
           <HStack gap="2" wrap="wrap" mb="5">
             {sequencia.map((b, i) => {
@@ -323,6 +388,32 @@ export default function ApresentarPage() {
         </Box>
       </Box>
     </Box>
+  );
+}
+
+/**
+ * Link de entrada da turma, aqui no cabeçalho de propósito: a apresentação deve
+ * bastar por si, sem o professor voltar ao overview para pegar o endereço.
+ */
+function LinkDaTurma({ codigo }: { codigo: string }) {
+  const [copiado, setCopiado] = useState(false);
+  const url = `${window.location.origin}/sala/${codigo}`;
+
+  return (
+    <CustomButton
+      variant="ghost"
+      icon={copiado ? Check : Copy}
+      size="sm"
+      onClick={() => {
+        navigator.clipboard
+          .writeText(url)
+          .then(() => setCopiado(true))
+          // Sem permissão de clipboard não há o que fazer além de não travar.
+          .catch(() => undefined);
+      }}
+    >
+      {copiado ? "Link copiado" : "Copiar link da turma"}
+    </CustomButton>
   );
 }
 

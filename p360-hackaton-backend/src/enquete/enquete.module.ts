@@ -10,6 +10,6 @@ import { Poll360Service } from "./poll360.service";
   imports: [AulasModule],
   controllers: [EnqueteController],
   providers: [EnqueteService, EnqueteIaService, Poll360Service],
-  exports: [Poll360Service],
+  exports: [Poll360Service, EnqueteService],
 })
 export class EnqueteModule {}

@@ -17,5 +17,6 @@ import { CursoWrapperService } from "./curso-wrapper.service";
     CasoDiagnosticoService,
     CursoWrapperService,
   ],
+  exports: [CasoService],
 })
 export class CasoModule {}

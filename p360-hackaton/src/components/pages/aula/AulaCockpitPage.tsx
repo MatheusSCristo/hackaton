@@ -25,6 +25,7 @@ import MaterialBloco from "./MaterialBloco";
 import SessaoPanel from "./SessaoPanel";
 import { useAula } from "@/hooks/useAulas";
 import { useBlocos } from "@/hooks/useBlocos";
+import { usePrepararAula } from "@/hooks/usePreparacao";
 import { useSessaoAtual } from "@/hooks/useSessao";
 import { useSessaoLive } from "@/hooks/useSessaoLive";
 import type { EstadoSessao } from "@/services/sessao";
@@ -47,6 +48,7 @@ export default function AulaCockpitPage() {
     useSessaoAtual(aulaId);
   const live = useSessaoLive(sessaoRest?.codigo);
   const sessao = live.estado ?? sessaoRest ?? null;
+  const preparar = usePrepararAula(aulaId);
 
   const carregando = carregandoAula || carregandoBlocos;
 
@@ -76,13 +78,30 @@ export default function AulaCockpitPage() {
               liberação de cada bloco é automática ao avançar a etapa.
             </Text>
           </Box>
-          <CustomButton
-            variant="solid"
-            icon={MonitorPlay}
-            onClick={() => navigate(`/aulas/${aulaId}/apresentar`)}
-          >
-            Apresentar
-          </CustomButton>
+          <Stack gap="1" align="flex-end">
+            <CustomButton
+              variant="solid"
+              icon={MonitorPlay}
+              isLoading={preparar.isPending}
+              onClick={async () => {
+                // Prepara antes de navegar: o professor não deveria descobrir
+                // que faltava gerar algo já com a turma na frente do projetor.
+                // Se o preparo falhar em algum bloco, seguimos: a tela de
+                // apresentação mostra o estado real de cada etapa.
+                try {
+                  await preparar.mutateAsync();
+                } catch {
+                  // erro exibido abaixo; a apresentação ainda é útil
+                }
+                navigate(`/aulas/${aulaId}/apresentar`);
+              }}
+            >
+              {preparar.isPending ? "Preparando…" : "Visualizar projeção"}
+            </CustomButton>
+            <Text fontSize="2xs" color="gray.400">
+              Gera slides, caso e enquete que faltarem
+            </Text>
+          </Stack>
         </Flex>
       </Box>
 

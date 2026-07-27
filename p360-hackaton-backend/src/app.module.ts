@@ -8,6 +8,7 @@ import { CasosModule } from "./casos/casos.module";
 import { EnqueteModule } from "./enquete/enquete.module";
 import { HealthModule } from "./health/health.module";
 import { MateriaisModule } from "./materiais/materiais.module";
+import { PreparacaoModule } from "./preparacao/preparacao.module";
 import { LegacyDbModule } from "./legacy-db/legacy-db.module";
 import { PrismaModule } from "./prisma/prisma.module";
 import { SessaoModule } from "./sessao/sessao.module";
@@ -25,6 +26,7 @@ import { SessaoModule } from "./sessao/sessao.module";
     SessaoModule,
     CasoModule,
     MateriaisModule,
+    PreparacaoModule,
   ],
 })
 export class AppModule {}

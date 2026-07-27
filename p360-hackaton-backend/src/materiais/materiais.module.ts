@@ -35,5 +35,6 @@ import { SlidesIaService } from "./slides-ia.service";
     PptxRendererService,
     PdfRendererService,
   ],
+  exports: [MateriaisService],
 })
 export class MateriaisModule {}
