@@ -175,7 +175,7 @@ export default function MaterialBloco({
         </HStack>
       )}
 
-      {publicado && tipo === "simulado" && (
+      {publicado && (tipo === "simulado" || tipo === "resumo") && (
         <Box
           bg="green.50"
           borderWidth="1px"
@@ -185,16 +185,18 @@ export default function MaterialBloco({
           mb="3"
         >
           <Text fontSize="xs" fontWeight="semibold" color="green.800" mb="1">
-            Link do simulado para os alunos
+            Link do {tipo === "simulado" ? "simulado" : "resumo"} para os alunos
           </Text>
           <Text fontSize="xs" color="green.700" wordBreak="break-all">
-            {`${window.location.origin}/simulado/${bloco.id}`}
+            {`${window.location.origin}/${tipo}/${bloco.id}`}
           </Text>
-          <Text fontSize="2xs" color="green.700" mt="1">
-            {gabaritoLiberado
-              ? "Gabarito comentado liberado: os alunos veem a correção."
-              : "Os alunos veem a nota, mas não a correção — libere o gabarito quando quiser."}
-          </Text>
+          {tipo === "simulado" && (
+            <Text fontSize="2xs" color="green.700" mt="1">
+              {gabaritoLiberado
+                ? "Gabarito comentado liberado: os alunos veem a correção."
+                : "Os alunos veem a nota, mas não a correção — libere o gabarito quando quiser."}
+            </Text>
+          )}
         </Box>
       )}
 

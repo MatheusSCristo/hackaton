@@ -192,6 +192,16 @@ export async function getSimulado(blocoId: string): Promise<SimuladoAluno> {
   return data;
 }
 
+/** Resumo é pós-aula também: leitura em casa, liberada pelo professor. */
+export async function getResumo(
+  blocoId: string,
+): Promise<ResumoGerado & { aulaTitulo: string }> {
+  const { data } = await hackatonApi.get<ResumoGerado & { aulaTitulo: string }>(
+    `/api/resumos/${blocoId}`,
+  );
+  return data;
+}
+
 export async function responderSimuladoPorBloco(
   blocoId: string,
   respostas: { questaoIndex: number; alternativaLabel: string | null }[],

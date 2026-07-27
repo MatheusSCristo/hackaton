@@ -2,10 +2,21 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   definirGabarito,
+  getResumo,
   getSimulado,
   publicarPosAula,
   responderSimuladoPorBloco,
 } from "@/services/materiais";
+
+/** Resumo do aluno — leitura pós-aula, página própria. */
+export function useResumoAluno(blocoId: string | undefined) {
+  return useQuery({
+    queryKey: ["resumo-aluno", blocoId],
+    queryFn: () => getResumo(blocoId as string),
+    enabled: Boolean(blocoId),
+    retry: false,
+  });
+}
 
 /** Simulado do aluno — página própria, fora da sessão ao vivo. */
 export function useSimulado(blocoId: string | undefined) {

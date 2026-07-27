@@ -229,3 +229,20 @@ function requireAlunoId(user: LegacyTokenInfo | undefined): string {
   }
   return String(id);
 }
+
+/**
+ * Resumo do aluno — pós-aula, página própria.
+ *
+ * Só leitura, então não há tentativa a registrar; o gate é o mesmo do simulado
+ * (publicação pelo professor). Fica autenticado por coerência com o resto do
+ * pós-aula: material de turma não deve ficar aberto a quem tem o link.
+ */
+@Controller("resumos/:blocoId")
+export class ResumoAlunoController {
+  constructor(private readonly materiais: MateriaisService) {}
+
+  @Get()
+  async obter(@Param("blocoId") blocoId: string) {
+    return this.materiais.resumoPorBloco(blocoId);
+  }
+}

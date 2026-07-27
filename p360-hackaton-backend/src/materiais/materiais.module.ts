@@ -7,6 +7,7 @@ import { IaJsonService } from "./ia-json.service";
 import {
   MateriaisAlunoController,
   MateriaisController,
+  ResumoAlunoController,
   SimuladoAlunoController,
 } from "./materiais.controller";
 import { MateriaisService } from "./materiais.service";
@@ -22,6 +23,7 @@ import { SlidesIaService } from "./slides-ia.service";
     MateriaisController,
     MateriaisAlunoController,
     SimuladoAlunoController,
+    ResumoAlunoController,
   ],
   providers: [
     MateriaisService,

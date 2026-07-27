@@ -19,7 +19,7 @@ import { ResumoIaService } from "./resumo-ia.service";
 import { SimuladoIaService } from "./simulado-ia.service";
 import { SlidesIaService } from "./slides-ia.service";
 import { apresentacaoSchema, resumoSchema, simuladoSchema } from "./schemas";
-import type { Apresentacao, Simulado } from "./schemas";
+import type { Apresentacao, Resumo, Simulado } from "./schemas";
 
 export interface ArquivoGerado {
   buffer: Buffer;
@@ -201,6 +201,38 @@ export class MateriaisService {
     const bloco = await this.blocoPorId(blocoId);
     const output = asObject(bloco.output) ?? {};
     return this.lerApresentacao(output.apresentacao);
+  }
+
+  /**
+   * Resumo para o aluno ler **em casa**, no mesmo gate do simulado: a
+   * publicação pelo professor. Sem isso o botão "disponibilizar para a turma"
+   * do resumo não levava a lugar nenhum — só o PDF do professor existia.
+   */
+  async resumoPorBloco(
+    blocoId: string,
+  ): Promise<Resumo & { aulaTitulo: string }> {
+    const bloco = await this.prisma.aulaBloco.findUnique({
+      where: { id: blocoId },
+      include: { aula: { select: { titulo: true } } },
+    });
+    if (!bloco) throw new NotFoundException("Resumo não encontrado.");
+    if (bloco.tipo !== "resumo") {
+      throw new BadRequestException("Este material não é um resumo.");
+    }
+
+    const output = asObject(bloco.output) ?? {};
+    if (!output.publicadoEm) {
+      throw new ForbiddenException(
+        "Este resumo ainda não foi disponibilizado pelo professor.",
+      );
+    }
+
+    const parsed = resumoSchema.safeParse(output.resumo);
+    if (!parsed.success) {
+      throw new BadRequestException("Resumo ainda não gerado.");
+    }
+
+    return { ...parsed.data, aulaTitulo: bloco.aula.titulo };
   }
 
   /**

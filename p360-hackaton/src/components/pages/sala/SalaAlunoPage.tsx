@@ -248,9 +248,13 @@ function AtividadeAtual({ estado }: { estado: EstadoSessao }) {
 /**
  * Hand-off do caso em modo quiosque.
  *
- * O aluno pede autorização (nonce de uso único) e abrimos o player legado em
- * nova aba. O gate é nosso porque o legado não valida a liberação da turma no
- * deep-link do player.
+ * O aluno pede autorização e abrimos o player legado em nova aba. O gate é
+ * nosso porque o legado não valida a liberação da turma no deep-link do player.
+ *
+ * O botão continua disponível depois de abrir de propósito: o link do legado é
+ * de uso único (o `?t=` é consumido na entrada e sai da barra de endereço), então
+ * recarregar aquela aba sem sessão do avp-empresas cai na aba padrão da
+ * plataforma. Clicar de novo aqui gera um link novo — é o caminho de volta.
  */
 function AbrirCaso({
   sessaoId,
@@ -319,9 +323,13 @@ function AbrirCaso({
       <Heading size="sm" color="gray.800" mb="2">
         Caso clínico liberado
       </Heading>
-      <Text fontSize="sm" color="gray.600" mb="4">
+      <Text fontSize="sm" color="gray.600" mb="1">
         O caso abre em uma nova aba. Ao terminar, volte para esta página — a
         próxima atividade aparece aqui.
+      </Text>
+      <Text fontSize="xs" color="gray.500" mb="4">
+        Se a aba abrir no painel da plataforma em vez do caso, feche-a e clique
+        aqui de novo.
       </Text>
       <CustomButton
         variant="solid"

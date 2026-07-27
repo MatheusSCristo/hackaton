@@ -7,6 +7,7 @@ import ApresentarPage from "@/components/pages/apresentar/ApresentarPage";
 import ProjecaoPage from "@/components/pages/apresentar/ProjecaoPage";
 import SalaAlunoPage from "@/components/pages/sala/SalaAlunoPage";
 import SimuladoPage from "@/components/pages/simulado/SimuladoPage";
+import ResumoPage from "@/components/pages/resumo/ResumoPage";
 
 function AppRouter() {
   return (
@@ -20,8 +21,9 @@ function AppRouter() {
         <Route path="/aulas/:aulaId/projetar" element={<ProjecaoPage />} />
         {/* Sala do aluno: casca única da sessão, entrada por código. */}
         <Route path="/sala/:codigo" element={<SalaAlunoPage />} />
-        {/* Pós-aula: página própria, o aluno faz em casa. */}
+        {/* Pós-aula: páginas próprias, o aluno faz/lê em casa. */}
         <Route path="/simulado/:blocoId" element={<SimuladoPage />} />
+        <Route path="/resumo/:blocoId" element={<ResumoPage />} />
       </Routes>
     </BrowserRouter>
   );
