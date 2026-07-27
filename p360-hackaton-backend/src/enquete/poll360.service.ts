@@ -68,6 +68,7 @@ export class Poll360Service {
    */
   async criarPacote(
     token: string,
+    empId: number,
     packageName: string,
     perguntas: PerguntaEnquete[],
   ): Promise<PacoteCriado> {
@@ -78,6 +79,8 @@ export class Poll360Service {
       token,
       `${API_PREFIX}/packages`,
       {
+        // `companyId` é obrigatório e vem como STRING no DTO do poll360.
+        companyId: String(empId),
         packageName,
         requireLogin: false,
         requireEmail: false,
@@ -142,14 +145,21 @@ export class Poll360Service {
   ): Promise<SessaoEnquete> {
     const http = this.require();
 
-    const data = await this.post<{ accessPin?: string; pin?: string }>(
+    const data = await this.post<unknown>(
       http,
       token,
       `${API_PREFIX}/sessions/start`,
       { pollId, packageId },
     );
 
-    const accessPin = data?.accessPin ?? data?.pin;
+    // Mesmo envelope `{ success, row }` dos outros endpoints.
+    const corpo = unwrap(data);
+    const accessPin =
+      typeof corpo?.accessPin === "string"
+        ? corpo.accessPin
+        : typeof corpo?.pin === "string"
+          ? corpo.pin
+          : undefined;
     if (!accessPin) {
       throw new BadGatewayException("poll360 não retornou o PIN da sessão.");
     }
@@ -221,26 +231,50 @@ export class Poll360Service {
       });
       return response.data;
     } catch (error) {
-      this.logger.error(`POST ${url} falhou: ${describe(error)}`);
+      const detalhe = describe(error);
+      this.logger.error(`POST ${url} falhou: ${detalhe}`);
+
+      // Propaga o motivo real: erro de validação (422) ou de auth (401) do
+      // poll360 mascarado como "falha de comunicação" é impossível de depurar.
       throw new BadGatewayException(
-        `Falha ao comunicar com o poll360 (${url}).`,
+        `poll360 recusou ${url}: ${mensagemDoErro(error) ?? detalhe}`,
       );
     }
   }
 }
 
-/** O monolith às vezes devolve `{ data: {...} }`, às vezes o objeto puro. */
+/** Extrai a mensagem que o poll360 devolveu (string ou lista de validações). */
+function mensagemDoErro(error: unknown): string | null {
+  if (!axios.isAxiosError(error)) return null;
+  const data = error.response?.data as { message?: unknown } | undefined;
+  const message = data?.message;
+  if (typeof message === "string") return message;
+  if (Array.isArray(message)) return message.join("; ");
+  return null;
+}
+
+/**
+ * O poll360 responde `{ success: true, row: { id, ... } }`. Aceitamos também
+ * `{ data: {...} }` e o objeto puro, porque o envelope varia entre endpoints.
+ */
 function extractId(payload: unknown): string | null {
+  const corpo = unwrap(payload);
+  const id = corpo?.id;
+  return typeof id === "string" && id ? id : null;
+}
+
+/** Tira o envelope `{ success, row }` (ou `{ data }`) e devolve o objeto útil. */
+function unwrap(payload: unknown): Record<string, unknown> | null {
   if (typeof payload !== "object" || payload === null) return null;
   const obj = payload as Record<string, unknown>;
-  const direto = obj.id;
-  if (typeof direto === "string" && direto) return direto;
-  const aninhado = obj.data;
-  if (typeof aninhado === "object" && aninhado !== null) {
-    const id = (aninhado as Record<string, unknown>).id;
-    if (typeof id === "string" && id) return id;
+
+  for (const chave of ["row", "data"]) {
+    const envelope = obj[chave];
+    if (typeof envelope === "object" && envelope !== null) {
+      return envelope as Record<string, unknown>;
+    }
   }
-  return null;
+  return obj;
 }
 
 function tituloCurto(enunciado: string): string {

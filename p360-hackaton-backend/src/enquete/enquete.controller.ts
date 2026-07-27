@@ -8,11 +8,11 @@ import {
 
 import { LegacyToken } from "../auth/legacy-token.decorator";
 import { LegacyUser } from "../auth/legacy-user.decorator";
-import { requireProfessorId } from "../auth/legacy-user.util";
+import { legacyEmpId, requireProfessorId } from "../auth/legacy-user.util";
 import type { LegacyTokenInfo } from "../auth/legacy-auth.service";
 import type { BlocoDto } from "../aulas/dto/bloco.dto";
 import { EnqueteService } from "./enquete.service";
-import { GerarEnqueteDto } from "./dto/enquete.dto";
+import { GerarEnqueteDto, IniciarEnqueteDto } from "./dto/enquete.dto";
 
 function requireToken(token: string | undefined): string {
   if (!token) {
@@ -52,13 +52,19 @@ export class EnqueteController {
       blocoId,
       requireProfessorId(user),
       requireToken(token),
+      legacyEmpId(user),
     );
   }
 
+  /**
+   * Sobe uma questão ao vivo. Sem `indice`, a primeira; com `indice`, é o
+   * "próxima questão" da tela de apresentação — o PIN da turma não muda.
+   */
   @Post("iniciar")
   async iniciar(
     @Param("aulaId") aulaId: string,
     @Param("blocoId") blocoId: string,
+    @Body() dto: IniciarEnqueteDto,
     @LegacyUser() user: LegacyTokenInfo | undefined,
     @LegacyToken() token: string | undefined,
   ): Promise<BlocoDto> {
@@ -67,6 +73,7 @@ export class EnqueteController {
       blocoId,
       requireProfessorId(user),
       requireToken(token),
+      dto.indice ?? 0,
     );
   }
 }

@@ -15,3 +15,12 @@ export class GerarEnqueteDto {
   @IsString()
   idioma?: string;
 }
+
+export class IniciarEnqueteDto {
+  /** Questão a subir (0-based). Ausente = primeira. */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  indice?: number;
+}

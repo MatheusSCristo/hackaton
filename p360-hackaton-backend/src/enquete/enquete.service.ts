@@ -86,7 +86,11 @@ export class EnqueteService {
     blocoId: string,
     professorId: string,
     token: string,
+    empId: number | undefined,
   ): Promise<BlocoDto> {
+    if (empId === undefined) {
+      throw new BadRequestException("Empresa não identificada no token.");
+    }
     const bloco = await this.blocos.getBloco(aulaId, blocoId, professorId);
     const output = asObject(bloco.output) ?? {};
     const perguntas = lerPerguntas(output.perguntas);
@@ -102,6 +106,7 @@ export class EnqueteService {
 
     const { packageId, pollIds } = await this.poll360.criarPacote(
       token,
+      empId,
       nomePacote,
       perguntas,
     );
@@ -113,12 +118,21 @@ export class EnqueteService {
     });
   }
 
-  /** Abre a sessão ao vivo no poll360 e devolve PIN + URL de entrada. */
+  /**
+   * Abre a questão `indice` ao vivo no poll360 e devolve PIN + URL de entrada.
+   *
+   * No poll360 **uma sessão vale uma questão**: `sessions/start` recebe um
+   * `pollId` só, e `poll:start` sobe justamente o poll daquela sessão. Avançar
+   * de questão, portanto, é abrir uma sessão nova para o `pollId` seguinte —
+   * e o `StartPoll360PollSessionUseCase` reaproveita o `accessPin` da sessão
+   * anterior, então a turma **não** precisa reentrar com outro PIN.
+   */
   async iniciar(
     aulaId: string,
     blocoId: string,
     professorId: string,
     token: string,
+    indice = 0,
   ): Promise<BlocoDto> {
     const bloco = await this.blocos.getBloco(aulaId, blocoId, professorId);
     const output = asObject(bloco.output) ?? {};
@@ -137,15 +151,23 @@ export class EnqueteService {
       throw new BadRequestException("Publique a enquete antes de iniciar.");
     }
 
+    if (!Number.isInteger(indice) || indice < 0 || indice >= pollIds.length) {
+      throw new BadRequestException(
+        `Questão ${indice + 1} não existe nesta enquete (são ${pollIds.length}).`,
+      );
+    }
+
     const { accessPin, joinUrl } = await this.poll360.iniciarSessao(
       token,
       packageId,
-      pollIds[0],
+      pollIds[indice],
     );
 
     return this.blocos.mergeOutput(blocoId, {
       accessPin,
       joinUrl,
+      questaoAtual: indice,
+      totalQuestoes: pollIds.length,
       iniciadoEm: new Date().toISOString(),
     });
   }

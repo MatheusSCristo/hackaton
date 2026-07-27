@@ -1,9 +1,4 @@
-import {
-  BadRequestException,
-  Controller,
-  Get,
-  Query,
-} from "@nestjs/common";
+import { BadRequestException, Controller, Get, Query } from "@nestjs/common";
 
 import { LegacyUser } from "../auth/legacy-user.decorator";
 import type { LegacyTokenInfo } from "../auth/legacy-auth.service";

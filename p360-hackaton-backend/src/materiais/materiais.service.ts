@@ -493,24 +493,24 @@ function montarResultado(
     correcao: !comGabarito
       ? []
       : simulado.questions.map((questao, index) => {
-      const escolhida =
-        respostas.find((r) => r.questaoIndex === index)?.alternativaLabel ??
-        null;
-      const correta =
-        questao.alternatives.find((a) => a.isCorrect)?.label ?? "";
-      return {
-        statement: questao.statement,
-        escolhida,
-        correta,
-        acertou: escolhida !== null && escolhida === correta,
-        explicacao: questao.explanationCorrect,
-        alternativas: questao.alternatives.map((alt) => ({
-          label: alt.label,
-          text: alt.text,
-          isCorrect: alt.isCorrect,
-          explicacaoSeIncorreta: alt.explanationIfIncorrect,
-        })),
-      };
-    }),
+          const escolhida =
+            respostas.find((r) => r.questaoIndex === index)?.alternativaLabel ??
+            null;
+          const correta =
+            questao.alternatives.find((a) => a.isCorrect)?.label ?? "";
+          return {
+            statement: questao.statement,
+            escolhida,
+            correta,
+            acertou: escolhida !== null && escolhida === correta,
+            explicacao: questao.explanationCorrect,
+            alternativas: questao.alternatives.map((alt) => ({
+              label: alt.label,
+              text: alt.text,
+              isCorrect: alt.isCorrect,
+              explicacaoSeIncorreta: alt.explanationIfIncorrect,
+            })),
+          };
+        }),
   };
 }
