@@ -10,6 +10,7 @@ import { EnqueteModule } from "./enquete/enquete.module";
 import { HealthModule } from "./health/health.module";
 import { MateriaisModule } from "./materiais/materiais.module";
 import { LegacyDbModule } from "./legacy-db/legacy-db.module";
+import { Poll360DbModule } from "./enquete/poll360-db.module";
 import { LlmModule } from "./llm/llm.module";
 import { MetricasModule } from "./metricas/metricas.module";
 import { PrismaModule } from "./prisma/prisma.module";
@@ -21,6 +22,7 @@ import { SessaoModule } from "./sessao/sessao.module";
     ScheduleModule.forRoot(),
     PrismaModule,
     LegacyDbModule,
+    Poll360DbModule,
     LlmModule,
     AuthModule,
     HealthModule,

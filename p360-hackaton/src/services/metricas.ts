@@ -20,7 +20,16 @@ export interface QuestaoDificil {
 export interface DesempenhoAluno {
   usuarioId: string;
   nome: string | null;
+  email: string | null;
   tentativas: number;
+  mediaAcertos: number;
+}
+
+/** Mesma ideia, mas identificado por e-mail — é o que a enquete coleta do respondente. */
+export interface DesempenhoAlunoEnquete {
+  email: string;
+  nome: string | null;
+  respostas: number;
   mediaAcertos: number;
 }
 
@@ -51,6 +60,7 @@ export interface MetricasDetalhadas {
   distribuicaoAcertos: FaixaDistribuicao[];
   questoesMaisDificeis: QuestaoDificil[];
   desempenhoPorAluno: DesempenhoAluno[];
+  desempenhoPorAlunoEnquete: DesempenhoAlunoEnquete[];
   porAula: DesempenhoPorAula[];
 }
 

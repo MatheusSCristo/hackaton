@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   Badge,
   Box,
@@ -87,8 +88,24 @@ export default function MateriaisTab({
   const { data: templates } = useTemplates();
   const temBlocoCaso = blocos.some((b) => b.tipo === "caso");
   const { data: turmas } = useTurmasCriacao(temBlocoCaso);
+  const [mostrarErrosMateriais, setMostrarErrosMateriais] = useState(false);
 
   const temPontoDePartida = Boolean(selectedCaseId) || tema.trim().length > 0;
+
+  // Bloco de caso clínico exige turma escolhida — é ela que o preparo no
+  // legado usa assim que a aula é criada, sem passo manual depois.
+  const faltaTurmaCaso = blocos.some(
+    (b) => b.tipo === "caso" && !b.config.turmaId,
+  );
+
+  const tentarCriarEGerarTudo = () => {
+    if (faltaTurmaCaso) {
+      setMostrarErrosMateriais(true);
+      return;
+    }
+    setMostrarErrosMateriais(false);
+    onCriarEGerarTudo();
+  };
 
   const blocosSessao = blocos.filter((b) => momentoDoTipo(b.tipo) === "sessao");
   const blocosPosAula = blocos.filter(
@@ -180,6 +197,7 @@ export default function MateriaisTab({
           blocos={blocosSessao}
           todos={blocos}
           turmas={turmas}
+          mostrarErros={mostrarErrosMateriais}
           onAdd={addBloco}
           onMove={moveBloco}
           onRemove={removeBloco}
@@ -280,7 +298,7 @@ export default function MateriaisTab({
         <CustomButton
           variant="solid"
           icon={Sparkles}
-          onClick={onCriarEGerarTudo}
+          onClick={tentarCriarEGerarTudo}
           disabled={blocos.length === 0}
         >
           Criar aula e gerar materiais
@@ -302,6 +320,8 @@ interface SecaoBlocosProps {
   todos: BlocoDraft[];
   /** Turmas do professor — só carregadas quando há um bloco "caso". */
   turmas: TurmaLegacy[] | undefined;
+  /** Mostrar erro de validação (ex.: turma do caso não escolhida). */
+  mostrarErros?: boolean;
   onAdd: (tipo: TipoBloco, config?: Record<string, unknown>) => void;
   onMove: (tempId: string, direcao: -1 | 1) => void;
   onRemove: (tempId: string) => void;
@@ -317,6 +337,7 @@ function SecaoBlocos({
   blocos,
   todos,
   turmas,
+  mostrarErros = false,
   onAdd,
   onMove,
   onRemove,
@@ -367,6 +388,7 @@ function SecaoBlocos({
                 )
                 .some((b) => b.tipo === "caso")}
               turmas={turmas}
+              mostrarErros={mostrarErros}
               onMove={(direcao) => onMove(bloco.tempId, direcao)}
               onRemove={() => onRemove(bloco.tempId)}
               onConfig={(patch) => onConfig(bloco.tempId, patch)}
@@ -453,6 +475,8 @@ interface BlocoItemProps {
   temCasoAntes: boolean;
   /** Turmas do professor — usado pelo config do bloco "caso". */
   turmas: TurmaLegacy[] | undefined;
+  /** Mostrar erro de validação (ex.: turma do caso não escolhida). */
+  mostrarErros?: boolean;
   onMove: (direcao: -1 | 1) => void;
   onRemove: () => void;
   onConfig: (patch: Record<string, unknown>) => void;
@@ -465,6 +489,7 @@ function BlocoItem({
   ultimo,
   temCasoAntes,
   turmas,
+  mostrarErros = false,
   onMove,
   onRemove,
   onConfig,
@@ -576,6 +601,13 @@ function BlocoItem({
               label: t.nome,
             }))}
             onChange={(value) => onConfig({ turmaId: Number(value) })}
+            required
+            showAsterisk
+            errorMessage={
+              mostrarErros && !bloco.config.turmaId
+                ? "Selecione a turma que vai fazer o caso."
+                : null
+            }
           />
           <CustomSelect
             label="Como vai rodar"
@@ -585,6 +617,8 @@ function BlocoItem({
             onChange={(value) =>
               onConfig({ modo: value === "apresenta" ? "apresenta" : "autonomo" })
             }
+            required
+            showAsterisk
           />
         </SimpleGrid>
       )}

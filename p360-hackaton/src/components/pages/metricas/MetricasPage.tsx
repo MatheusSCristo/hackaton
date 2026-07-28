@@ -169,32 +169,43 @@ export default function MetricasPage() {
               )}
             </Painel>
 
-            <Painel
-              titulo="Desempenho por aluno"
-              descricao="Só simulado — a enquete não identifica quem respondeu. Piores desempenhos primeiro."
-            >
-              {data.desempenhoPorAluno.length === 0 ? (
-                <Vazio texto="Ainda não há tentativas de simulado registradas." />
-              ) : (
-                <Stack gap="2.5">
-                  {data.desempenhoPorAluno.slice(0, 12).map((a) => (
-                    <BarraHorizontal
-                      key={a.usuarioId}
-                      label={a.nome ?? `Aluno ${a.usuarioId}`}
-                      sublabel={`${a.tentativas} ${a.tentativas === 1 ? "tentativa" : "tentativas"}`}
-                      pct={a.mediaAcertos}
-                      cor={corPorPct(a.mediaAcertos)}
-                      valorLabel={`${a.mediaAcertos}%`}
-                    />
-                  ))}
-                  {data.desempenhoPorAluno.length > 12 && (
-                    <Text fontSize="2xs" color="gray.400">
-                      +{data.desempenhoPorAluno.length - 12} outros alunos
-                    </Text>
-                  )}
-                </Stack>
-              )}
-            </Painel>
+            <SimpleGrid columns={{ base: 1, lg: 2 }} gap="6">
+              <Painel
+                titulo="Desempenho por aluno · Simulado"
+                descricao="Piores desempenhos primeiro."
+              >
+                {data.desempenhoPorAluno.length === 0 ? (
+                  <Vazio texto="Ainda não há tentativas de simulado registradas." />
+                ) : (
+                  <ListaDesempenhoAluno
+                    itens={data.desempenhoPorAluno.map((a) => ({
+                      chave: a.usuarioId,
+                      nome: a.email ?? `Aluno ${a.usuarioId}`,
+                      sublabel: `${a.tentativas} ${a.tentativas === 1 ? "tentativa" : "tentativas"}`,
+                      pct: a.mediaAcertos,
+                    }))}
+                  />
+                )}
+              </Painel>
+
+              <Painel
+                titulo="Desempenho por aluno · Enquete"
+                descricao="E-mail coletado na entrada da enquete. Piores desempenhos primeiro."
+              >
+                {data.desempenhoPorAlunoEnquete.length === 0 ? (
+                  <Vazio texto="Ainda não há respostas de enquete identificadas." />
+                ) : (
+                  <ListaDesempenhoAluno
+                    itens={data.desempenhoPorAlunoEnquete.map((a) => ({
+                      chave: a.email,
+                      nome: a.email,
+                      sublabel: `${a.respostas} ${a.respostas === 1 ? "resposta" : "respostas"}`,
+                      pct: a.mediaAcertos,
+                    }))}
+                  />
+                )}
+              </Painel>
+            </SimpleGrid>
           </Stack>
         )}
       </Box>
@@ -321,6 +332,35 @@ function QuestaoRow({ questao }: { questao: QuestaoDificil }) {
         valorLabel={`${questao.pctAcerto}% de acerto`}
       />
     </Box>
+  );
+}
+
+interface ItemDesempenhoAluno {
+  chave: string;
+  nome: string;
+  sublabel: string;
+  pct: number;
+}
+
+function ListaDesempenhoAluno({ itens }: { itens: ItemDesempenhoAluno[] }) {
+  return (
+    <Stack gap="2.5">
+      {itens.slice(0, 12).map((item) => (
+        <BarraHorizontal
+          key={item.chave}
+          label={item.nome}
+          sublabel={item.sublabel}
+          pct={item.pct}
+          cor={corPorPct(item.pct)}
+          valorLabel={`${item.pct}%`}
+        />
+      ))}
+      {itens.length > 12 && (
+        <Text fontSize="2xs" color="gray.400">
+          +{itens.length - 12} outros alunos
+        </Text>
+      )}
+    </Stack>
   );
 }
 

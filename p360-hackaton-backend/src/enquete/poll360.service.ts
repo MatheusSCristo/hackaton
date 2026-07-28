@@ -12,9 +12,19 @@ import type { PerguntaEnquete } from "./enquete-ia.service";
 const API_PREFIX = "/api/v1/poll360";
 const PUBLIC_API_PREFIX = "/api/v1/public/poll360";
 
+/** Nome do campo customizado usado para pedir o nome do aluno (não há campo nativo no poll360). */
+export const NOME_CAMPO_CUSTOM = "Nome";
+
 export interface PacoteCriado {
   packageId: string;
   pollIds: string[];
+  /**
+   * Id do campo customizado "Nome" (para ler o `custom_data` do attendee
+   * depois, na métrica) — o poll360 **ignora** qualquer `id` enviado na
+   * criação e gera o dele próprio, então precisa ser lido de volta na
+   * resposta em vez de assumido.
+   */
+  nomeCampoId: string | null;
 }
 
 export interface SessaoEnquete {
@@ -74,7 +84,7 @@ export class Poll360Service {
   ): Promise<PacoteCriado> {
     const http = this.require();
 
-    const pacote = await this.post<{ id?: string }>(
+    const pacote = await this.post<unknown>(
       http,
       token,
       `${API_PREFIX}/packages`,
@@ -82,19 +92,28 @@ export class Poll360Service {
         // `companyId` é obrigatório e vem como STRING no DTO do poll360.
         companyId: String(empId),
         packageName,
-        requireLogin: false,
-        requireEmail: false,
+        // Sem "nome" nativo no poll360 — pedimos via campo customizado, e
+        // e-mail via flag padrão. Isso faz o próprio poll360 mostrar a tela
+        // de identificação (nome + e-mail) antes do aluno responder, sem
+        // precisar de nada extra no nosso frontend.
+        requireLogin: true,
+        requireEmail: true,
         requireCrm: false,
         requireProfession: false,
+        customFieldsSchema: [{ field: NOME_CAMPO_CUSTOM, status: true }],
       },
     );
 
+    const corpoPacote = unwrap(pacote);
     const packageId = extractId(pacote);
     if (!packageId) {
       throw new BadGatewayException(
         "poll360 não retornou o id do pacote criado.",
       );
     }
+    // O poll360 IGNORA o `id` que enviamos no campo customizado e gera o dele
+    // próprio — só dá pra saber qual é lendo de volta na resposta.
+    const nomeCampoId = extrairNomeCampoId(corpoPacote);
 
     const pollIds: string[] = [];
     for (const [index, pergunta] of perguntas.entries()) {
@@ -134,7 +153,7 @@ export class Poll360Service {
       }
     }
 
-    return { packageId, pollIds };
+    return { packageId, pollIds, nomeCampoId };
   }
 
   /** Abre a sessão ao vivo: o poll360 gera o PIN de entrada dos alunos. */
@@ -279,6 +298,20 @@ function unwrap(payload: unknown): Record<string, unknown> | null {
     }
   }
   return obj;
+}
+
+/** Acha, na resposta da criação do pacote, o id gerado pro campo "Nome". */
+function extrairNomeCampoId(corpo: Record<string, unknown> | null): string | null {
+  const schema = corpo?.customFieldsSchema;
+  if (!Array.isArray(schema)) return null;
+  const campo = schema.find(
+    (item): item is { id?: string; field?: string } =>
+      typeof item === "object" &&
+      item !== null &&
+      (item as { field?: unknown }).field === NOME_CAMPO_CUSTOM,
+  );
+  const id = campo?.id;
+  return typeof id === "string" && id ? id : null;
 }
 
 function tituloCurto(enunciado: string): string {

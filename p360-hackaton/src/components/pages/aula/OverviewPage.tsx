@@ -129,11 +129,6 @@ export default function OverviewPage() {
               <Heading size="sm" color="gray.800">
                 Insights rápidos
               </Heading>
-              {insights.data && !insights.data.ia && (
-                <Badge variant="subtle" colorPalette="gray" fontSize="xs">
-                  heurística
-                </Badge>
-              )}
             </Flex>
             {insights.isLoading ? (
               <Flex justify="center" py="6">

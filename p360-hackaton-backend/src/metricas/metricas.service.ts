@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 
 import { PrismaService } from "../prisma/prisma.service";
+import { Poll360DbService } from "../enquete/poll360-db.service";
 
 type JsonObject = Record<string, unknown>;
 
@@ -40,7 +41,17 @@ export interface QuestaoDificil {
 export interface DesempenhoAluno {
   usuarioId: string;
   nome: string | null;
+  email: string | null;
   tentativas: number;
+  mediaAcertos: number;
+}
+
+/** Mesma ideia de `DesempenhoAluno`, mas identificado por e-mail (é o que o
+ * poll360 coleta do respondente) em vez de `usuarioId` do legado. */
+export interface DesempenhoAlunoEnquete {
+  email: string;
+  nome: string | null;
+  respostas: number;
   mediaAcertos: number;
 }
 
@@ -71,6 +82,7 @@ export interface MetricasDetalhadas {
   distribuicaoAcertos: FaixaDistribuicao[];
   questoesMaisDificeis: QuestaoDificil[];
   desempenhoPorAluno: DesempenhoAluno[];
+  desempenhoPorAlunoEnquete: DesempenhoAlunoEnquete[];
   porAula: DesempenhoPorAula[];
 }
 
@@ -89,7 +101,10 @@ const FAIXAS = [
  */
 @Injectable()
 export class MetricasService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly poll360Db: Poll360DbService,
+  ) {}
 
   private async aulaIdsDoProfessor(professorId: string): Promise<string[]> {
     const aulas = await this.prisma.aula.findMany({
@@ -152,6 +167,7 @@ export class MetricasService {
         distribuicaoAcertos: [],
         questoesMaisDificeis: [],
         desempenhoPorAluno: [],
+        desempenhoPorAlunoEnquete: [],
         porAula: [],
       };
     }
@@ -169,7 +185,12 @@ export class MetricasService {
         }),
         this.prisma.aulaBloco.findMany({
           where: { aulaId: { in: aulaIds }, tipo: "enquete" },
-          select: { id: true, aulaId: true, aula: { select: { titulo: true } } },
+          select: {
+            id: true,
+            aulaId: true,
+            output: true,
+            aula: { select: { titulo: true } },
+          },
         }),
         this.prisma.simuladoTentativa.findMany({
           where: { bloco: { aulaId: { in: aulaIds } } },
@@ -178,6 +199,35 @@ export class MetricasService {
           where: { bloco: { aulaId: { in: aulaIds } } },
         }),
       ]);
+
+    // ---- Desempenho por aluno na enquete (lido direto do poll360 — é ele
+    // quem sabe quem votou o quê; aqui só guardamos o agregado por opção) ----
+    const pacotesEnquete = blocosEnquete
+      .map((b) => {
+        const output = asObject(b.output) ?? {};
+        const packageId = output.poll360PackageId;
+        return typeof packageId === "string" && packageId
+          ? {
+              packageId,
+              nomeCampoId:
+                typeof output.poll360NomeCampoId === "string"
+                  ? output.poll360NomeCampoId
+                  : null,
+            }
+          : null;
+      })
+      .filter((p): p is { packageId: string; nomeCampoId: string | null } => p !== null);
+    const desempenhoPorAlunoEnquete: DesempenhoAlunoEnquete[] = (
+      await this.poll360Db.desempenhoPorAluno(pacotesEnquete)
+    )
+      .filter((a) => a.total > 0)
+      .map((a) => ({
+        email: a.email,
+        nome: a.nome,
+        respostas: a.total,
+        mediaAcertos: Math.round((100 * a.acertos) / a.total),
+      }))
+      .sort((a, b) => a.mediaAcertos - b.mediaAcertos);
 
     const tituloPorAula = new Map<string, string>();
     for (const b of blocosSimulado) tituloPorAula.set(b.aulaId, b.aula.titulo);
@@ -238,18 +288,24 @@ export class MetricasService {
       .slice(0, 5);
 
     // ---- Desempenho por aluno (só simulado — enquete não identifica quem votou) ----
-    const porAluno = new Map<string, { nome: string | null; total: number; soma: number }>();
+    const porAluno = new Map<
+      string,
+      { nome: string | null; email: string | null; total: number; soma: number }
+    >();
     for (const t of tentativas) {
-      const atual = porAluno.get(t.usuarioId) ?? { nome: t.nome, total: 0, soma: 0 };
+      const atual =
+        porAluno.get(t.usuarioId) ?? { nome: t.nome, email: t.email, total: 0, soma: 0 };
       atual.total += 1;
       atual.soma += t.percentual;
       if (t.nome) atual.nome = t.nome;
+      if (t.email) atual.email = t.email;
       porAluno.set(t.usuarioId, atual);
     }
     const desempenhoPorAluno: DesempenhoAluno[] = [...porAluno.entries()]
       .map(([usuarioId, v]) => ({
         usuarioId,
         nome: v.nome,
+        email: v.email,
         tentativas: v.total,
         mediaAcertos: Math.round(v.soma / v.total),
       }))
@@ -306,6 +362,7 @@ export class MetricasService {
       distribuicaoAcertos,
       questoesMaisDificeis,
       desempenhoPorAluno,
+      desempenhoPorAlunoEnquete,
       porAula,
     };
   }

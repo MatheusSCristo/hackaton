@@ -107,7 +107,7 @@ export class EnqueteService {
     const aula = await this.prisma.aula.findUnique({ where: { id: aulaId } });
     const nomePacote = aula?.titulo?.trim() || "Enquete da aula";
 
-    const { packageId, pollIds } = await this.poll360.criarPacote(
+    const { packageId, pollIds, nomeCampoId } = await this.poll360.criarPacote(
       token,
       empId,
       nomePacote,
@@ -117,6 +117,7 @@ export class EnqueteService {
     return this.blocos.mergeOutput(blocoId, {
       poll360PackageId: packageId,
       poll360PollIds: pollIds,
+      poll360NomeCampoId: nomeCampoId,
       publicadoEm: new Date().toISOString(),
     });
   }
