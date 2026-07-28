@@ -156,7 +156,7 @@ export default function MetricasPage() {
 
             <Painel
               titulo="Questões com mais dificuldade"
-              descricao="As perguntas (simulado ou enquete) onde a turma mais erra — priorize reforçar esses pontos."
+              descricao="As 5 perguntas (simulado ou enquete) onde a turma mais erra — priorize reforçar esses pontos."
             >
               {data.questoesMaisDificeis.length === 0 ? (
                 <Vazio texto="Ainda não há respostas de simulado ou enquete suficientes." />
@@ -253,9 +253,14 @@ function InsightCard({ insight }: { insight: InsightMetrica }) {
       <Box mt="0.5" flexShrink={0}>
         <AppIcon icon={estilo.icon} size={16} color={estilo.cor} />
       </Box>
-      <Text fontSize="sm" color="gray.800">
-        {insight.texto}
-      </Text>
+      <Box>
+        <Text fontSize="sm" fontWeight="semibold" color="gray.900" mb="0.5">
+          {insight.titulo}
+        </Text>
+        <Text fontSize="sm" color="gray.800">
+          {insight.texto}
+        </Text>
+      </Box>
     </Flex>
   );
 }

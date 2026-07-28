@@ -41,6 +41,7 @@ export interface FaixaDistribuicao {
 
 export interface InsightMetrica {
   tipo: "critico" | "atencao" | "positivo" | "info";
+  titulo: string;
   texto: string;
 }
 

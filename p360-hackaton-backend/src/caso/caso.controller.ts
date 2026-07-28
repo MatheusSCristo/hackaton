@@ -124,6 +124,27 @@ export class CasoController {
 }
 
 /**
+ * Turmas da empresa do professor, fora do contexto de uma aula/bloco —
+ * usado na etapa de CRIAÇÃO (o professor escolhe a turma antes mesmo de a
+ * aula existir, então ainda não há `aulaId`/`blocoId` pra aninhar a rota).
+ */
+@Controller("caso/turmas")
+export class CasoTurmasController {
+  constructor(private readonly wrapper: CursoWrapperService) {}
+
+  @Get()
+  async turmas(
+    @LegacyUser() user: LegacyTokenInfo | undefined,
+  ): Promise<TurmaLegacy[]> {
+    const empId = legacyEmpId(user);
+    if (empId === undefined) {
+      throw new BadRequestException("Empresa não identificada no token.");
+    }
+    return this.wrapper.listarTurmas(empId);
+  }
+}
+
+/**
  * Acesso do aluno ao caso.
  *
  * Um passo só: `autorizar` valida a liberação, garante a matrícula e devolve a

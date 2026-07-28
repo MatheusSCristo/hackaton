@@ -59,6 +59,15 @@ export async function getTurmas(
   return data;
 }
 
+/**
+ * Mesma lista de turmas, mas usável ANTES de a aula existir — a etapa de
+ * criação escolhe a turma do caso já ali, não mais depois no cockpit.
+ */
+export async function getTurmasCriacao(): Promise<TurmaLegacy[]> {
+  const { data } = await hackatonApi.get<TurmaLegacy[]>("/api/caso/turmas");
+  return data;
+}
+
 export async function prepararCaso(
   aulaId: string,
   blocoId: string,

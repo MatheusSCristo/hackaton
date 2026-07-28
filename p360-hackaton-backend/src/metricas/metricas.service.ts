@@ -61,6 +61,7 @@ export interface FaixaDistribuicao {
 
 export interface InsightMetrica {
   tipo: "critico" | "atencao" | "positivo" | "info";
+  titulo: string;
   texto: string;
 }
 
@@ -234,7 +235,7 @@ export class MetricasService {
 
     const questoesMaisDificeis = [...questoesSimulado, ...questoesEnquete]
       .sort((a, b) => a.pctAcerto - b.pctAcerto)
-      .slice(0, 15);
+      .slice(0, 5);
 
     // ---- Desempenho por aluno (só simulado — enquete não identifica quem votou) ----
     const porAluno = new Map<string, { nome: string | null; total: number; soma: number }>();
@@ -327,11 +328,13 @@ export class MetricasService {
       if (kpis.mediaAcertos < 50) {
         insights.push({
           tipo: "critico",
+          titulo: "Média geral baixa",
           texto: `A média geral de acerto está em ${kpis.mediaAcertos}% — bem abaixo do ideal (70%). Vale revisar os fundamentos antes de avançar.`,
         });
       } else if (kpis.mediaAcertos >= 70) {
         insights.push({
           tipo: "positivo",
+          titulo: "Turma indo bem",
           texto: `A turma está com uma boa média geral de acerto (${kpis.mediaAcertos}%).`,
         });
       }
@@ -345,6 +348,7 @@ export class MetricasService {
           : piorQuestao.enunciado;
       insights.push({
         tipo: "critico",
+        titulo: "Questão mais difícil",
         texto: `A questão "${enunciadoCurto}" (${piorQuestao.aulaTitulo}) teve só ${piorQuestao.pctAcerto}% de acerto — o maior sinal de dificuldade que a turma mostrou.`,
       });
     }
@@ -356,6 +360,7 @@ export class MetricasService {
         const pct = Math.round((100 * abaixoDe50.length) / comDados.length);
         insights.push({
           tipo: "atencao",
+          titulo: "Alunos precisam de atenção",
           texto: `${abaixoDe50.length} de ${comDados.length} alunos (${pct}%) estão com média abaixo de 50% no simulado — podem precisar de atenção individual.`,
         });
       }
@@ -375,6 +380,7 @@ export class MetricasService {
         const pior = mediaSimulado > mediaEnquete ? "enquete" : "simulado";
         insights.push({
           tipo: "info",
+          titulo: "Simulado x enquete",
           texto: `A turma vai melhor em ${melhor} do que em ${pior} (${Math.max(mediaSimulado, mediaEnquete)}% vs ${Math.min(mediaSimulado, mediaEnquete)}%) — perguntas de múltipla escolha e ao vivo parecem medir coisas diferentes aqui.`,
         });
       }
@@ -383,6 +389,7 @@ export class MetricasService {
     if (kpis.engajamento > 0 && kpis.engajamento < 40) {
       insights.push({
         tipo: "atencao",
+        titulo: "Poucas respostas registradas",
         texto: `Só ${kpis.engajamento}% das aulas têm alguma resposta registrada — considere disponibilizar simulado ou enquete com mais frequência para ter mais sinal sobre o aprendizado da turma.`,
       });
     }

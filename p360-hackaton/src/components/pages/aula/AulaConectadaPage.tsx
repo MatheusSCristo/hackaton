@@ -13,6 +13,7 @@ import MateriaisTab from "./tabs/MateriaisTab";
 import { useCriarAula } from "@/hooks/useAulas";
 import { useValidacaoEtapaCriar } from "@/hooks/useValidacaoEtapaCriar";
 import { useAulaStore } from "@/store/aulaStore";
+import { prepararCaso } from "@/services/caso";
 import { gerarEnquete } from "@/services/enquete";
 import { gerarMaterial } from "@/services/materiais";
 import type { TipoBloco } from "@/services/blocos";
@@ -25,6 +26,13 @@ const TIPOS_COM_GERACAO: readonly TipoBloco[] = [
   "resumo",
   "material_complementar",
   "enquete",
+];
+/** + "caso": não gera conteúdo, mas também dispara sozinho (o preparo no
+ * legado) assim que a aula é criada — turma/modo já vieram da config do
+ * bloco (etapa Materiais). */
+const TIPOS_COM_ACAO_AUTOMATICA: readonly TipoBloco[] = [
+  ...TIPOS_COM_GERACAO,
+  "caso",
 ];
 
 interface TabDef {
@@ -102,12 +110,13 @@ export default function AulaConectadaPage() {
   });
 
   /**
-   * Ação principal da aba Materiais: salva a aula E já dispara a geração de
-   * todo o conteúdo (slides, simulado, resumo, material complementar,
-   * rascunho de enquete) em paralelo — o professor vê o progresso real na
-   * mesma tela, em vez de precisar clicar "gerar" bloco a bloco depois.
-   * Falha isolada de 1 bloco não trava os demais nem impede os outros de
-   * completarem.
+   * Ação principal da aba Materiais: salva a aula E já dispara, em paralelo,
+   * a geração de todo o conteúdo (slides, simulado, resumo, material
+   * complementar, rascunho de enquete) E o preparo do caso clínico no legado
+   * (quando houver bloco `caso`, com a turma já escolhida na etapa Criar) —
+   * o professor vê o progresso real na mesma tela, em vez de precisar clicar
+   * "gerar"/"preparar" bloco a bloco depois. Falha isolada de 1 bloco não
+   * trava os demais nem impede os outros de completarem.
    */
   const handleCriarEGerarTudo = async () => {
     const draftAntesDeCriar = blocos;
@@ -115,7 +124,7 @@ export default function AulaConectadaPage() {
     setErroCriacao(null);
     setItensGeracao(
       draftAntesDeCriar
-        .filter((b) => TIPOS_COM_GERACAO.includes(b.tipo))
+        .filter((b) => TIPOS_COM_ACAO_AUTOMATICA.includes(b.tipo))
         .map((b) => ({
           id: b.tempId,
           titulo: BLOCO_META[b.tipo].titulo,
@@ -138,7 +147,7 @@ export default function AulaConectadaPage() {
 
       await Promise.allSettled(
         paresPorOrdem.map(async ({ local, real }) => {
-          if (!real || !TIPOS_COM_GERACAO.includes(local.tipo)) return;
+          if (!real || !TIPOS_COM_ACAO_AUTOMATICA.includes(local.tipo)) return;
 
           setItensGeracao((prev) =>
             prev.map((it) => (it.id === local.tempId ? { ...it, status: "gerando" } : it)),
@@ -146,6 +155,10 @@ export default function AulaConectadaPage() {
           try {
             if (local.tipo === "enquete") {
               await gerarEnquete(aula.id, real.id, {});
+            } else if (local.tipo === "caso") {
+              // Turma/modo já foram gravados no `config` do bloco (etapa
+              // Materiais) — preparar só cria/atribui o acesso no legado.
+              await prepararCaso(aula.id, real.id);
             } else {
               await gerarMaterial(aula.id, real.id);
             }

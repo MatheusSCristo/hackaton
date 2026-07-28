@@ -31,8 +31,10 @@ import {
 import type { BlocoMeta } from "../blocoMeta";
 import { useAulaStore } from "@/store/aulaStore";
 import { useTemplates } from "@/hooks/useBlocos";
+import { useTurmasCriacao } from "@/hooks/useCaso";
 import type { BlocoDraft } from "@/store/aulaStore";
 import type { TipoBloco } from "@/services/blocos";
+import type { TurmaLegacy } from "@/services/caso";
 
 const DIFERENCIAIS = [
   {
@@ -58,6 +60,11 @@ const N_PERGUNTAS_OPTIONS = [3, 5, 8, 10].map((n) => ({
   label: `${n} questões`,
 }));
 
+const MODO_CASO_OPTIONS = [
+  { value: "autonomo", label: "Resolvido pela turma" },
+  { value: "apresenta", label: "Apresentado por você" },
+];
+
 interface MateriaisTabProps {
   /** Salva a aula E dispara a geração de todos os materiais de uma vez. */
   onCriarEGerarTudo: () => void | Promise<void>;
@@ -78,6 +85,8 @@ export default function MateriaisTab({
     applyTemplateBlocos,
   } = useAulaStore();
   const { data: templates } = useTemplates();
+  const temBlocoCaso = blocos.some((b) => b.tipo === "caso");
+  const { data: turmas } = useTurmasCriacao(temBlocoCaso);
 
   const temPontoDePartida = Boolean(selectedCaseId) || tema.trim().length > 0;
 
@@ -170,6 +179,7 @@ export default function MateriaisTab({
           catalogo={BLOCOS_SESSAO}
           blocos={blocosSessao}
           todos={blocos}
+          turmas={turmas}
           onAdd={addBloco}
           onMove={moveBloco}
           onRemove={removeBloco}
@@ -184,6 +194,7 @@ export default function MateriaisTab({
           catalogo={BLOCOS_POS_AULA}
           blocos={blocosPosAula}
           todos={blocos}
+          turmas={turmas}
           onAdd={addBloco}
           onMove={moveBloco}
           onRemove={removeBloco}
@@ -289,6 +300,8 @@ interface SecaoBlocosProps {
   blocos: BlocoDraft[];
   /** Lista completa — usada para saber se há um caso ANTES deste bloco. */
   todos: BlocoDraft[];
+  /** Turmas do professor — só carregadas quando há um bloco "caso". */
+  turmas: TurmaLegacy[] | undefined;
   onAdd: (tipo: TipoBloco, config?: Record<string, unknown>) => void;
   onMove: (tempId: string, direcao: -1 | 1) => void;
   onRemove: (tempId: string) => void;
@@ -303,6 +316,7 @@ function SecaoBlocos({
   catalogo,
   blocos,
   todos,
+  turmas,
   onAdd,
   onMove,
   onRemove,
@@ -352,6 +366,7 @@ function SecaoBlocos({
                   todos.findIndex((b) => b.tempId === bloco.tempId),
                 )
                 .some((b) => b.tipo === "caso")}
+              turmas={turmas}
               onMove={(direcao) => onMove(bloco.tempId, direcao)}
               onRemove={() => onRemove(bloco.tempId)}
               onConfig={(patch) => onConfig(bloco.tempId, patch)}
@@ -393,7 +408,9 @@ function SecaoBlocos({
                       meta.tipo,
                       meta.tipo === "enquete"
                         ? { foco: "geral", nPerguntas: 5 }
-                        : {},
+                        : meta.tipo === "caso"
+                          ? { modo: "autonomo" }
+                          : {},
                     )
                 : undefined
             }
@@ -434,6 +451,8 @@ interface BlocoItemProps {
   ultimo: boolean;
   /** Habilita o foco "pontos fracos" — precisa de um caso ANTES na sequência. */
   temCasoAntes: boolean;
+  /** Turmas do professor — usado pelo config do bloco "caso". */
+  turmas: TurmaLegacy[] | undefined;
   onMove: (direcao: -1 | 1) => void;
   onRemove: () => void;
   onConfig: (patch: Record<string, unknown>) => void;
@@ -445,6 +464,7 @@ function BlocoItem({
   primeiro,
   ultimo,
   temCasoAntes,
+  turmas,
   onMove,
   onRemove,
   onConfig,
@@ -538,6 +558,33 @@ function BlocoItem({
             value={String(bloco.config.nPerguntas ?? 5)}
             options={N_PERGUNTAS_OPTIONS}
             onChange={(value) => onConfig({ nPerguntas: Number(value) })}
+          />
+        </SimpleGrid>
+      )}
+
+      {/* Config específica do caso clínico: turma + quem vai resolver — o
+          preparo no legado roda sozinho ao criar a aula, sem botão manual
+          depois no cockpit. */}
+      {bloco.tipo === "caso" && (
+        <SimpleGrid columns={{ base: 1, md: 2 }} gap="3" mt="3" pl="12">
+          <CustomSelect
+            label="Turma"
+            placeholder="Selecione a turma"
+            value={bloco.config.turmaId ? String(bloco.config.turmaId) : ""}
+            options={(turmas ?? []).map((t) => ({
+              value: String(t.id),
+              label: t.nome,
+            }))}
+            onChange={(value) => onConfig({ turmaId: Number(value) })}
+          />
+          <CustomSelect
+            label="Como vai rodar"
+            placeholder="Selecione"
+            value={String(bloco.config.modo ?? "autonomo")}
+            options={MODO_CASO_OPTIONS}
+            onChange={(value) =>
+              onConfig({ modo: value === "apresenta" ? "apresenta" : "autonomo" })
+            }
           />
         </SimpleGrid>
       )}

@@ -5,6 +5,9 @@ import type { BlocoConfig, TipoBloco } from "@/services/blocos";
 
 export type StartMode = "caso" | "tema";
 
+/** Como o caso vai rodar com a turma — configurado no bloco de materiais. */
+export type ModoCaso = "autonomo" | "apresenta";
+
 /** Campos de texto/seleção editáveis do rascunho da aula. */
 export type AulaTextField =
   "tema" | "publico" | "duracao" | "objetivos";

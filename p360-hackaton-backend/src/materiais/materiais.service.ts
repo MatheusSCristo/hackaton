@@ -379,6 +379,7 @@ export class MateriaisService {
     blocoId: string,
     usuarioId: string,
     nome: string | undefined,
+    email: string | undefined,
     respostas: { questaoIndex: number; alternativaLabel: string | null }[],
   ): Promise<ResultadoSimulado> {
     const bloco = await this.blocoPorId(blocoId);
@@ -417,6 +418,7 @@ export class MateriaisService {
         blocoId,
         usuarioId,
         nome: nome ?? null,
+        email: email ?? null,
         respostas: normalizadas as unknown as Prisma.InputJsonValue,
         acertos,
         total,

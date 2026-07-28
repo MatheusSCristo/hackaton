@@ -13,9 +13,11 @@ import { Type } from "class-transformer";
 import {
   IsArray,
   IsBoolean,
+  IsEmail,
   IsInt,
   IsOptional,
   IsString,
+  MinLength,
   Min,
   ValidateNested,
 } from "class-validator";
@@ -50,6 +52,14 @@ class ResponderSimuladoDto {
   @IsOptional()
   @IsString()
   alunoToken?: string;
+
+  /** Coletados no gate antes do aluno abrir o simulado (sem eles não sabemos quem é quem nas métricas). */
+  @IsString()
+  @MinLength(1)
+  nome!: string;
+
+  @IsEmail()
+  email!: string;
 }
 
 class PublicarDto {
@@ -64,8 +74,17 @@ class GabaritoDto {
   liberado?: boolean;
 }
 
-/** Nome do usuário legado, para exibir na lista de tentativas. */
-function nomeDoUsuario(user: LegacyTokenInfo | undefined): string | undefined {
+/**
+ * Nome pra exibir na lista de tentativas — prioriza o que o próprio aluno
+ * digitou no gate (é o caso normal hoje, já que o simulado não exige mais
+ * login); só cai pro nome do token legado se por acaso vier um usuário
+ * autenticado e nada tiver sido enviado no DTO.
+ */
+function nomeDoUsuario(
+  user: LegacyTokenInfo | undefined,
+  nomeDto?: string,
+): string | undefined {
+  if (nomeDto?.trim()) return nomeDto.trim();
   if (typeof user?.user !== "object" || user.user === null) return undefined;
   const nome = (user.user as Record<string, unknown>).nome;
   return typeof nome === "string" ? nome : undefined;
@@ -200,7 +219,8 @@ export class SimuladoAlunoController {
     return this.materiais.responderSimulado(
       blocoId,
       resolveAlunoId(user, dto.alunoToken),
-      nomeDoUsuario(user),
+      nomeDoUsuario(user, dto.nome),
+      dto.email,
       dto.respostas.map((r) => ({
         questaoIndex: r.questaoIndex,
         alternativaLabel: r.alternativaLabel ?? null,

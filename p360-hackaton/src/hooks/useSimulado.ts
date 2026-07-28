@@ -23,9 +23,16 @@ export function useResponderSimuladoPorBloco(
 ) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (
-      respostas: { questaoIndex: number; alternativaLabel: string | null }[],
-    ) => responderSimuladoPorBloco(blocoId as string, alunoToken, respostas),
+    mutationFn: (vars: {
+      identidade: { nome: string; email: string };
+      respostas: { questaoIndex: number; alternativaLabel: string | null }[];
+    }) =>
+      responderSimuladoPorBloco(
+        blocoId as string,
+        alunoToken,
+        vars.identidade,
+        vars.respostas,
+      ),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["simulado", blocoId, alunoToken] });
     },

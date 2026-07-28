@@ -127,7 +127,7 @@ export default function OverviewPage() {
             <Flex align="center" gap="2" mb="3">
               <AppIcon icon={Lightbulb} size={18} color="yellow.500" />
               <Heading size="sm" color="gray.800">
-                Dicas da IA
+                Insights rápidos
               </Heading>
               {insights.data && !insights.data.ia && (
                 <Badge variant="subtle" colorPalette="gray" fontSize="xs">

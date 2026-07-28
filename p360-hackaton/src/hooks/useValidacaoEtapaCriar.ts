@@ -21,5 +21,10 @@ export function useValidacaoEtapaCriar() {
 
   const valido = !erroPontoDePartida && !erroPublico && !erroDuracao;
 
-  return { erroPontoDePartida, erroPublico, erroDuracao, valido };
+  return {
+    erroPontoDePartida,
+    erroPublico,
+    erroDuracao,
+    valido,
+  };
 }

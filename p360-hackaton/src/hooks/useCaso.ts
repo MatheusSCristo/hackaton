@@ -5,6 +5,7 @@ import {
   encerrarCaso,
   getProgressoCaso,
   getTurmas,
+  getTurmasCriacao,
   liberarCaso,
   prepararCaso,
 } from "@/services/caso";
@@ -17,6 +18,16 @@ export function useTurmas(
     queryKey: ["caso", aulaId, blocoId, "turmas"],
     queryFn: () => getTurmas(aulaId as string, blocoId as string),
     enabled: Boolean(aulaId && blocoId),
+    staleTime: 5 * 60_000,
+  });
+}
+
+/** Turmas pra etapa de criação — antes de a aula/bloco existir. */
+export function useTurmasCriacao(enabled: boolean) {
+  return useQuery({
+    queryKey: ["caso", "turmas-criacao"],
+    queryFn: getTurmasCriacao,
+    enabled,
     staleTime: 5 * 60_000,
   });
 }

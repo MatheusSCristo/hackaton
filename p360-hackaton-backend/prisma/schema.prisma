@@ -91,6 +91,9 @@ model SimuladoTentativa {
   /// Id do usuário no legado (nunca o token).
   usuarioId String @map("usuario_id")
   nome      String?
+  /// Coletado no gate antes do aluno anônimo abrir o simulado (ver
+  /// `SimuladoPage`) — vira métrica de "quem" está errando/acertando.
+  email     String?
   /// Respostas: [{ questaoIndex, alternativaLabel }].
   respostas Json
   acertos   Int

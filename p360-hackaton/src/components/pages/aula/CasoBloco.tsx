@@ -4,21 +4,13 @@ import {
   Flex,
   Heading,
   HStack,
-  SimpleGrid,
   Stack,
   Text,
   CustomButton,
-  CustomSelect,
 } from "@cursosactive/p360-new-ui";
-import { RefreshCw, Settings2, Users } from "lucide-react";
+import { RefreshCw, Users } from "lucide-react";
 
-import { useUpdateBloco } from "@/hooks/useBlocos";
-import {
-  useColetarCaso,
-  usePrepararCaso,
-  useProgressoCaso,
-  useTurmas,
-} from "@/hooks/useCaso";
+import { useColetarCaso, usePrepararCaso, useProgressoCaso } from "@/hooks/useCaso";
 import type { Bloco } from "@/services/blocos";
 import type {
   AgregadoCaso,
@@ -33,11 +25,6 @@ const SEVERIDADE_COR: Record<PontoFraco["severidade"], string> = {
   baixa: "gray",
 };
 
-const MODO_OPTIONS = [
-  { value: "autonomo", label: "Alunos resolvem sozinhos" },
-  { value: "apresenta", label: "Eu apresento o caso" },
-];
-
 interface CasoBlocoProps {
   aulaId: string;
   bloco: Bloco;
@@ -47,11 +34,11 @@ interface CasoBlocoProps {
 }
 
 /**
- * Bloco de caso no cockpit: configurar turma/modo → preparar → (liberar pela
- * sessão) → encerrar/coletar → ver diagnóstico.
- *
- * A liberação em si é o botão da sessão (no cartão do bloco); aqui ficam a
- * configuração, o preparo no legado e os resultados.
+ * Bloco de caso no cockpit — turma e "quem vai fazer" já foram decididos na
+ * etapa Criar, e o preparo no legado já rodou sozinho ao criar a aula (ver
+ * `AulaConectadaPage.handleCriarEGerarTudo`). Aqui só fica o que acontece
+ * DEPOIS disso: liberar (botão fica no cartão da sessão), acompanhar e
+ * coletar os resultados.
  */
 export default function CasoBloco({
   aulaId,
@@ -59,85 +46,51 @@ export default function CasoBloco({
   sessao,
   liberado,
 }: CasoBlocoProps) {
-  const { data: turmas } = useTurmas(aulaId, bloco.id);
-  const atualizar = useUpdateBloco(aulaId);
   const preparar = usePrepararCaso(aulaId);
   const coletar = useColetarCaso(aulaId);
 
   const output = bloco.output ?? {};
-  const turmaId = Number(bloco.config.turmaId) || null;
-  const modo = bloco.config.modo === "apresenta" ? "apresenta" : "autonomo";
   const preparado = Boolean(output.cursoLegacyId);
   const agregado = output.agregado as AgregadoCaso | undefined;
   const diagnostico = output.diagnostico as DiagnosticoTurma | undefined;
 
   const progresso = useProgressoCaso(aulaId, bloco.id, liberado);
-  const turmaSelecionada = turmas?.find((t) => t.id === turmaId);
 
   const erro = preparar.error ?? coletar.error;
 
   return (
     <Box pl={{ base: 0, md: 12 }}>
-      {/* Configuração */}
-      <SimpleGrid columns={{ base: 1, md: 2 }} gap="3" mb="3">
-        <CustomSelect
-          label="Turma"
-          placeholder="Selecione a turma"
-          value={turmaId ? String(turmaId) : ""}
-          options={(turmas ?? []).map((t) => ({
-            value: String(t.id),
-            label: t.nome,
-          }))}
-          onChange={(value) =>
-            atualizar.mutate({
-              blocoId: bloco.id,
-              config: { ...bloco.config, turmaId: Number(value) },
-            })
-          }
-        />
-        <CustomSelect
-          label="Como vai rodar"
-          placeholder="Selecione"
-          value={modo}
-          options={MODO_OPTIONS}
-          onChange={(value) =>
-            atualizar.mutate({
-              blocoId: bloco.id,
-              config: { ...bloco.config, modo: value },
-            })
-          }
-        />
-      </SimpleGrid>
-
-      {turmaSelecionada?.codigoAcesso && (
-        <Text fontSize="2xs" color="gray.500" mb="3">
-          Alunos sem matrícula podem entrar na turma com o código{" "}
-          <b>{turmaSelecionada.codigoAcesso}</b> — quem entrar pela sala é
-          matriculado automaticamente.
-        </Text>
-      )}
-
-      {modo === "apresenta" && (
-        <Text fontSize="2xs" color="orange.600" mb="3">
-          No modo apresentação não há execução por aluno — o diagnóstico da IA
-          só fica rico no modo &quot;alunos resolvem sozinhos&quot;.
-        </Text>
-      )}
-
-      {/* Ações */}
-      <HStack gap="2" wrap="wrap" mb="3">
-        <CustomButton
-          variant={preparado ? "outline" : "solid"}
-          icon={Settings2}
-          size="sm"
-          isLoading={preparar.isPending}
-          disabled={!turmaId}
-          onClick={() => preparar.mutate(bloco.id)}
+      {/* O preparo já roda sozinho na criação da aula — se ainda não
+          aconteceu ao chegar aqui, é porque algo deu errado lá (turma sem
+          código de acesso, legado fora do ar etc.), não que ainda está em
+          andamento. Por isso a saída manual aqui, mesmo sem um botão
+          "Preparar" no fluxo normal. */}
+      {!preparado && !erro && (
+        <Box
+          bg="orange.50"
+          borderWidth="1px"
+          borderColor="orange.200"
+          borderRadius="lg"
+          p="3"
+          mb="3"
         >
-          {preparado ? "Repreparar" : "Preparar o caso"}
-        </CustomButton>
+          <Text fontSize="xs" color="orange.800" mb="2">
+            O caso ainda não foi preparado — o passo automático da criação
+            não chegou a rodar ou não terminou.
+          </Text>
+          <CustomButton
+            variant="outline"
+            size="sm"
+            isLoading={preparar.isPending}
+            onClick={() => preparar.mutate(bloco.id)}
+          >
+            Preparar agora
+          </CustomButton>
+        </Box>
+      )}
 
-        {preparado && (
+      {preparado && (
+        <HStack gap="2" wrap="wrap" mb="3">
           <CustomButton
             variant="outline"
             icon={RefreshCw}
@@ -148,14 +101,7 @@ export default function CasoBloco({
           >
             Atualizar resultados
           </CustomButton>
-        )}
-      </HStack>
-
-      {!preparado && (
-        <Text fontSize="2xs" color="gray.400" mb="3">
-          Preparar cria o acesso da turma ao caso no Paciente 360 (fechado até
-          você liberar).
-        </Text>
+        </HStack>
       )}
 
       {!sessao && preparado && (
@@ -173,9 +119,18 @@ export default function CasoBloco({
           p="3"
           mb="3"
         >
-          <Text fontSize="xs" color="red.700">
+          <Text fontSize="xs" color="red.700" mb="2">
+            Não foi possível preparar o caso automaticamente:{" "}
             {mensagemErro(erro)}
           </Text>
+          <CustomButton
+            variant="outline"
+            size="sm"
+            isLoading={preparar.isPending}
+            onClick={() => preparar.mutate(bloco.id)}
+          >
+            Tentar de novo
+          </CustomButton>
         </Box>
       )}
 

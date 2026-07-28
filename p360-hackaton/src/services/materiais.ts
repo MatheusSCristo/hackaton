@@ -232,11 +232,12 @@ export async function getSimulado(
 export async function responderSimuladoPorBloco(
   blocoId: string,
   alunoToken: string,
+  identidade: { nome: string; email: string },
   respostas: { questaoIndex: number; alternativaLabel: string | null }[],
 ): Promise<ResultadoSimulado> {
   const { data } = await hackatonApi.post<ResultadoSimulado>(
     `/api/simulados/${blocoId}/responder`,
-    { respostas, alunoToken },
+    { respostas, alunoToken, ...identidade },
   );
   return data;
 }

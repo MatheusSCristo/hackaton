@@ -9,12 +9,18 @@ import {
   Stack,
   Text,
   CustomButton,
+  CustomInput,
 } from "@cursosactive/p360-new-ui";
 import { Check, ClipboardList, LockKeyhole, Send, X } from "lucide-react";
 
 import { useResponderSimuladoPorBloco, useSimulado } from "@/hooks/useSimulado";
 import type { ResultadoSimulado } from "@/services/materiais";
-import { getAlunoToken } from "@/utils/alunoToken";
+import {
+  getAlunoToken,
+  getIdentidadeSalva,
+  salvarIdentidade,
+} from "@/utils/alunoToken";
+import type { IdentidadeAluno } from "@/utils/alunoToken";
 
 /**
  * Página do simulado — **pós-aula**, o aluno faz em casa no próprio tempo.
@@ -30,6 +36,9 @@ export default function SimuladoPage() {
   const { data, isLoading, error } = useSimulado(blocoId, alunoToken);
   const responder = useResponderSimuladoPorBloco(blocoId, alunoToken);
   const [escolhas, setEscolhas] = useState<Record<number, string>>({});
+  const [identidade, setIdentidade] = useState<IdentidadeAluno | null>(
+    getIdentidadeSalva,
+  );
 
   if (isLoading) {
     return (
@@ -71,6 +80,16 @@ export default function SimuladoPage() {
         <Resultado
           resultado={resultado}
           gabaritoLiberado={data.gabaritoLiberado}
+        />
+      ) : !identidade ? (
+        // Ainda não respondeu e não sabemos quem é — pede nome/e-mail antes
+        // de mostrar as questões. É o que faz "Aluno anon:xxxx" virar um
+        // nome de verdade nas métricas.
+        <GateIdentidade
+          onConfirmar={(nova) => {
+            salvarIdentidade(nova);
+            setIdentidade(nova);
+          }}
         />
       ) : (
         <Box
@@ -160,14 +179,16 @@ export default function SimuladoPage() {
               variant="solid"
               icon={Send}
               isLoading={responder.isPending}
-              disabled={respondidas === 0}
+              disabled={respondidas === 0 || !identidade}
               onClick={() =>
-                responder.mutate(
-                  data.questions.map((_, index) => ({
+                identidade &&
+                responder.mutate({
+                  identidade,
+                  respostas: data.questions.map((_, index) => ({
                     questaoIndex: index,
                     alternativaLabel: escolhas[index] ?? null,
                   })),
-                )
+                })
               }
             >
               Enviar respostas
@@ -176,6 +197,77 @@ export default function SimuladoPage() {
         </Box>
       )}
     </Moldura>
+  );
+}
+
+/**
+ * Antes de ver as questões, o aluno se identifica — sem isso a métrica de
+ * desempenho só teria um UUID anônimo, sem jeito de saber quem é quem.
+ */
+function GateIdentidade({
+  onConfirmar,
+}: {
+  onConfirmar: (identidade: IdentidadeAluno) => void;
+}) {
+  const [nome, setNome] = useState("");
+  const [email, setEmail] = useState("");
+  const [tentou, setTentou] = useState(false);
+
+  const nomeValido = nome.trim().length > 0;
+  const emailValido = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+
+  const confirmar = () => {
+    setTentou(true);
+    if (!nomeValido || !emailValido) return;
+    onConfirmar({ nome: nome.trim(), email: email.trim() });
+  };
+
+  return (
+    <Box
+      bg="white"
+      borderWidth="1px"
+      borderColor="gray.200"
+      borderRadius="xl"
+      p={{ base: 4, md: 6 }}
+    >
+      <Heading size="sm" color="gray.800" mb="1">
+        Antes de começar
+      </Heading>
+      <Text fontSize="sm" color="gray.500" mb="4">
+        Diga seu nome e e-mail — é assim que seu professor sabe de quem é
+        cada resultado.
+      </Text>
+
+      <Stack gap="3">
+        <CustomInput
+          label="Nome completo"
+          value={nome}
+          onChange={setNome}
+          placeholder="Seu nome"
+          required
+          showAsterisk
+          errorMessage={tentou && !nomeValido ? "Informe seu nome." : null}
+        />
+        <CustomInput
+          label="E-mail"
+          variant="text"
+          value={email}
+          onChange={setEmail}
+          placeholder="voce@exemplo.com"
+          required
+          showAsterisk
+          errorMessage={
+            tentou && !emailValido ? "Informe um e-mail válido." : null
+          }
+        />
+      </Stack>
+
+      <Flex justify="flex-end" mt="5">
+        <CustomButton variant="solid" onClick={confirmar}>
+          Continuar
+        </CustomButton>
+      </Flex>
+    </Box>
   );
 }
 
