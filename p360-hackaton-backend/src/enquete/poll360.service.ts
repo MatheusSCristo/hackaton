@@ -202,10 +202,14 @@ export class Poll360Service {
     }
   }
 
-  /** URL pública de entrada do aluno (survey-frontend). */
+  /**
+   * URL pública de entrada do aluno (survey-frontend) — `/sessions/:pin` entra
+   * direto na votação, sem pedir pro aluno digitar o código de novo (diferente
+   * de `/join?pin=`, que ainda mostra uma tela intermediária de entrada).
+   */
   joinUrl(accessPin: string): string {
     const base = (this.publicUrl ?? "").replace(/\/+$/, "");
-    return base ? `${base}/join?pin=${encodeURIComponent(accessPin)}` : "";
+    return base ? `${base}/sessions/${encodeURIComponent(accessPin)}` : "";
   }
 
   private require(): AxiosInstance {

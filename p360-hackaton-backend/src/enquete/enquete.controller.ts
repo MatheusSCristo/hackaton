@@ -12,7 +12,11 @@ import { legacyEmpId, requireProfessorId } from "../auth/legacy-user.util";
 import type { LegacyTokenInfo } from "../auth/legacy-auth.service";
 import type { BlocoDto } from "../aulas/dto/bloco.dto";
 import { EnqueteService } from "./enquete.service";
-import { GerarEnqueteDto, IniciarEnqueteDto } from "./dto/enquete.dto";
+import {
+  GerarEnqueteDto,
+  IniciarEnqueteDto,
+  TrocarQuestaoDto,
+} from "./dto/enquete.dto";
 
 function requireToken(token: string | undefined): string {
   if (!token) {
@@ -74,6 +78,28 @@ export class EnqueteController {
       requireProfessorId(user),
       requireToken(token),
       dto.indice ?? 0,
+    );
+  }
+
+  /**
+   * Só registra em qual questão a sala está agora — quem de fato troca a
+   * questão ao vivo pra turma é a tela de apresentação, direto no WebSocket
+   * do poll360 (`poll:end`/`poll:restart`, ver `useEnqueteLive`). Chamar
+   * `iniciar` de novo aqui reabriria (e derrubaria) a sessão sem avisar
+   * ninguém.
+   */
+  @Post("questao-atual")
+  async trocarQuestao(
+    @Param("aulaId") aulaId: string,
+    @Param("blocoId") blocoId: string,
+    @Body() dto: TrocarQuestaoDto,
+    @LegacyUser() user: LegacyTokenInfo | undefined,
+  ): Promise<BlocoDto> {
+    return this.enquete.avancar(
+      aulaId,
+      blocoId,
+      requireProfessorId(user),
+      dto.indice,
     );
   }
 }

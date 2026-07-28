@@ -45,7 +45,11 @@ import {
   useLiberarCaso,
   useProgressoCaso,
 } from "@/hooks/useCaso";
-import { useIniciarEnquete, usePublicarEnquete } from "@/hooks/useEnquete";
+import {
+  useIniciarEnquete,
+  usePublicarEnquete,
+  useTrocarQuestaoAtual,
+} from "@/hooks/useEnquete";
 import { useEnqueteLive } from "@/hooks/useEnqueteLive";
 import { useSessaoLive } from "@/hooks/useSessaoLive";
 import type { Bloco } from "@/services/blocos";
@@ -583,11 +587,17 @@ function ControleEnquete({
 }) {
   const publicar = usePublicarEnquete(aulaId);
   const iniciarQuestao = useIniciarEnquete(aulaId);
+  const persistirQuestaoAtual = useTrocarQuestaoAtual(aulaId);
 
   const output = bloco.output ?? {};
   const pin = output.accessPin as string | undefined;
   const publicada = Boolean(output.poll360PackageId);
   const perguntas = Array.isArray(output.perguntas) ? output.perguntas : [];
+  const pollIds = Array.isArray(output.poll360PollIds)
+    ? (output.poll360PollIds as unknown[]).filter(
+        (id): id is string => typeof id === "string",
+      )
+    : [];
   const total = Number(output.totalQuestoes) || perguntas.length;
   const indice = Number(output.questaoAtual) || 0;
 
@@ -623,31 +633,54 @@ function ControleEnquete({
   }, [bloco.id, publicada, pin, perguntas.length]);
 
   // Assim que somos reconhecidos como speaker, a questão sobe sem clique.
+  // Mas antes disso: toda vez que esta tela é aberta (nova apresentação), a
+  // enquete deve recomeçar da primeira questão — não continuar de onde uma
+  // apresentação anterior parou (`questaoAtual` persiste entre sessões).
   const noAr = useRef<string | null>(null);
+  const reabriuNestaSessao = useRef(false);
   useEffect(() => {
-    const chave = `${pin ?? ""}:${indice}`;
-    if (!pin || !live.ehSpeaker || live.pollAtivo || noAr.current === chave) {
-      return;
+    if (!pin || !live.ehSpeaker) return;
+
+    if (!reabriuNestaSessao.current) {
+      reabriuNestaSessao.current = true;
+      if (indice !== 0 && pollIds[0]) {
+        // Já marca como "questão 0 no ar" pra não subir de novo (redundante)
+        // assim que o índice persistido atualizar no próximo render.
+        noAr.current = `${pin}:0`;
+        live.trocarQuestao(pollIds[0]);
+        persistirQuestaoAtual.mutate({ blocoId: bloco.id, indice: 0 });
+        return;
+      }
     }
+
+    const chave = `${pin}:${indice}`;
+    if (live.pollAtivo || noAr.current === chave) return;
     noAr.current = chave;
     live.iniciar();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pin, indice, live.ehSpeaker, live.pollAtivo]);
 
   const temProxima = indice + 1 < total;
+  const temAnterior = indice > 0;
 
-  /** Encerra a atual (mostrando resultado) e sobe a seguinte no mesmo PIN. */
-  const proximaQuestao = async () => {
-    if (!temProxima) return;
-    live.encerrarQuestao();
+  /**
+   * Encerra a questão atual e troca pra outra DENTRO do mesmo PIN — direto no
+   * WebSocket do poll360 (`poll:end` + `poll:restart`), que é o único jeito
+   * de a turma receber a troca ao vivo. Chamar `iniciarEnquete`/REST de novo
+   * (como era antes) reabre uma sessão nova no poll360 sem emitir nenhum
+   * evento — por isso a troca não "passava" pro aluno.
+   */
+  const irParaQuestao = (novoIndice: number) => {
+    const pollId = pollIds[novoIndice];
+    if (!pollId) return;
     onProjetar(false);
-    await iniciarQuestao.mutateAsync({
-      blocoId: bloco.id,
-      indice: indice + 1,
-    });
-    // O `noAr` muda de chave com o novo índice, então o efeito acima sobe a
-    // questão nova assim que o output chegar.
+    live.trocarQuestao(pollId);
+    // Só bookkeeping (sobrevive a F5) — não é o que troca a tela do aluno.
+    persistirQuestaoAtual.mutate({ blocoId: bloco.id, indice: novoIndice });
   };
+
+  const proximaQuestao = () => temProxima && irParaQuestao(indice + 1);
+  const questaoAnterior = () => temAnterior && irParaQuestao(indice - 1);
 
   const pergunta =
     live.pollAtivo?.questionText ?? live.pollAtivo?.title ?? null;
@@ -765,12 +798,24 @@ function ControleEnquete({
         >
           Encerrar votação
         </CustomButton>
+        {temAnterior && (
+          <CustomButton
+            variant="outline"
+            icon={ChevronLeft}
+            size="sm"
+            isLoading={persistirQuestaoAtual.isPending}
+            disabled={!live.ehSpeaker}
+            onClick={questaoAnterior}
+          >
+            Questão anterior ({indice}/{total})
+          </CustomButton>
+        )}
         {temProxima ? (
           <CustomButton
             variant="solid"
             icon={ChevronRight}
             size="sm"
-            isLoading={iniciarQuestao.isPending}
+            isLoading={persistirQuestaoAtual.isPending}
             disabled={!live.ehSpeaker}
             onClick={proximaQuestao}
           >

@@ -4,6 +4,7 @@ import {
   gerarEnquete,
   iniciarEnquete,
   publicarEnquete,
+  trocarQuestaoAtual,
   type GerarEnquetePayload,
 } from "@/services/enquete";
 
@@ -37,6 +38,16 @@ export function useIniciarEnquete(aulaId: string | undefined) {
   return useMutation({
     mutationFn: (vars: { blocoId: string; indice?: number }) =>
       iniciarEnquete(aulaId as string, vars.blocoId, vars.indice ?? 0),
+    onSuccess: invalidate,
+  });
+}
+
+/** Só bookkeeping (`questaoAtual`) — a troca ao vivo é via WebSocket direto no poll360. */
+export function useTrocarQuestaoAtual(aulaId: string | undefined) {
+  const invalidate = useInvalidateBlocos(aulaId);
+  return useMutation({
+    mutationFn: (vars: { blocoId: string; indice: number }) =>
+      trocarQuestaoAtual(aulaId as string, vars.blocoId, vars.indice),
     onSuccess: invalidate,
   });
 }

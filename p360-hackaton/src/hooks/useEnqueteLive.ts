@@ -69,12 +69,17 @@ export function useEnqueteLive(accessPin: string | undefined) {
       },
     );
 
-    socket.on("poll:started", (payload: { poll?: PollAoVivo }) => {
+    const aoIniciarOuReiniciar = (payload: { poll?: PollAoVivo }) => {
       setPollAtivo(payload?.poll ?? null);
       setVotos({});
       setTotalVotos(0);
       setEncerrada(false);
-    });
+    };
+    socket.on("poll:started", aoIniciarOuReiniciar);
+    // `poll:restart` (mesmo pin, poll diferente) é o jeito certo de trocar de
+    // questão dentro da mesma sessão — sem isso a tela do aluno nunca sabe
+    // que a pergunta mudou.
+    socket.on("poll:restarted", aoIniciarOuReiniciar);
 
     const aplicarResultados = (payload: {
       results?: Record<string, number>;
@@ -117,6 +122,41 @@ export function useEnqueteLive(accessPin: string | undefined) {
     [accessPin],
   );
 
+  /**
+   * Troca de questão dentro do mesmo pin: `poll:end` seguido de
+   * `poll:restart`. O `poll:end` do lado do poll360 é assíncrono (grava
+   * votos, limpa o poll ativo no Redis) — mandar o `poll:restart` logo em
+   * seguida, sem esperar, corria a chance de chegar ANTES desse processamento
+   * terminar, e o poll360 recusava com "poll já ativo" (aparecia pro
+   * professor como "recusou a ação... dono da sessão"). Por isso esperamos o
+   * evento `poll:ended` confirmar o encerramento antes de reiniciar — daí o
+   * padrão de "falha, tenta de novo, funciona" que você via.
+   */
+  const trocarQuestao = useCallback(
+    (pollId: string) => {
+      const socket = socketRef.current;
+      if (!socket || !accessPin) return;
+
+      let jaTrocou = false;
+      const reiniciarAgora = () => {
+        if (jaTrocou) return;
+        jaTrocou = true;
+        socket.off("poll:ended", reiniciarAgora);
+        socket.emit("poll:restart", { pin: accessPin, pollId });
+      };
+
+      socket.once("poll:ended", reiniciarAgora);
+      // Rede de segurança: se por algum motivo `poll:ended` nunca chegar (ex.:
+      // não havia questão ativa pra encerrar), troca mesmo assim depois de um
+      // tempo, em vez de travar pra sempre.
+      setTimeout(reiniciarAgora, 1500);
+
+      setErro(null);
+      socket.emit("poll:end", { pin: accessPin, showResults: true });
+    },
+    [accessPin],
+  );
+
   return {
     conectado,
     ehSpeaker,
@@ -127,6 +167,8 @@ export function useEnqueteLive(accessPin: string | undefined) {
     encerrada,
     erro,
     iniciar: () => emitir("poll:start"),
+    /** Troca a questão ativa dentro do MESMO pin — não reabre sessão nem PIN novo. */
+    trocarQuestao,
     mostrarResultados: () => emitir("poll:show-results"),
     encerrarQuestao: () => emitir("poll:end", { showResults: true }),
     encerrarSessao: () => emitir("poll:end-session"),

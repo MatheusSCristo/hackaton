@@ -52,3 +52,21 @@ export async function iniciarEnquete(
   );
   return data;
 }
+
+/**
+ * Só registra em qual questão a sala está agora (bookkeeping) — quem troca a
+ * questão de verdade pra turma é a tela de apresentação, direto no WebSocket
+ * do poll360 (`useEnqueteLive().reiniciar`). Chamar `iniciarEnquete` de novo
+ * pra trocar de questão reabre a sessão no poll360 sem avisar ninguém.
+ */
+export async function trocarQuestaoAtual(
+  aulaId: string,
+  blocoId: string,
+  indice: number,
+): Promise<Bloco> {
+  const { data } = await hackatonApi.post<Bloco>(
+    `/api/aulas/${aulaId}/blocos/${blocoId}/enquete/questao-atual`,
+    { indice },
+  );
+  return data;
+}

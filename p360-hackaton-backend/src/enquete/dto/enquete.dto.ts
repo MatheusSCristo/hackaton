@@ -24,3 +24,11 @@ export class IniciarEnqueteDto {
   @Min(0)
   indice?: number;
 }
+
+export class TrocarQuestaoDto {
+  /** Questão pra qual a sala já foi trocada via WebSocket (0-based). */
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  indice!: number;
+}

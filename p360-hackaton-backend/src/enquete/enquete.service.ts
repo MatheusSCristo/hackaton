@@ -173,6 +173,38 @@ export class EnqueteService {
   }
 
   /**
+   * Só atualiza o bookkeeping de "em qual questão estamos" (`questaoAtual`)
+   * — NÃO chama o poll360 via REST.
+   *
+   * `/sessions/start` (usado por `iniciar()`) encerra a sessão atual e cria
+   * uma sessão NOVA no poll360 sem emitir nenhum evento de socket — a troca
+   * de questão de verdade (o que o aluno vê mudar na tela) tem que ser feita
+   * pela própria tela de apresentação via WebSocket direto no poll360
+   * (`poll:end` + `poll:restart`, no mesmo PIN). Este método só existe pra
+   * persistir o índice atual no bloco, pra sobreviver a um F5/reabertura.
+   */
+  async avancar(
+    aulaId: string,
+    blocoId: string,
+    professorId: string,
+    indice: number,
+  ): Promise<BlocoDto> {
+    const bloco = await this.blocos.getBloco(aulaId, blocoId, professorId);
+    const output = asObject(bloco.output) ?? {};
+    const pollIds = Array.isArray(output.poll360PollIds)
+      ? output.poll360PollIds
+      : [];
+
+    if (!Number.isInteger(indice) || indice < 0 || indice >= pollIds.length) {
+      throw new BadRequestException(
+        `Questão ${indice + 1} não existe nesta enquete (são ${pollIds.length}).`,
+      );
+    }
+
+    return this.blocos.mergeOutput(blocoId, { questaoAtual: indice });
+  }
+
+  /**
    * Coleta os pontos fracos diagnosticados por blocos de caso que vêm ANTES
    * deste na sequência — é assim que o encadeamento funciona sem impor ordem.
    */
