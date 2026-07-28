@@ -3,6 +3,23 @@ import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
 import { Poll360DbService } from "../enquete/poll360-db.service";
 
+interface BlocoEnqueteRow {
+  id: string;
+  aulaId: string;
+  output: unknown;
+  aula: { titulo: string };
+}
+
+interface ResultadoEnquete {
+  blocoId: string;
+  aulaId: string;
+  aulaTitulo: string;
+  questaoIndex: number;
+  enunciado: string;
+  totalVotos: number;
+  pctAcerto: number;
+}
+
 type JsonObject = Record<string, unknown>;
 
 function asObject(value: unknown): JsonObject | null {
@@ -61,6 +78,8 @@ export interface DesempenhoPorAula {
   tentativasSimulado: number;
   mediaSimulado: number | null;
   questoesEnquete: number;
+  /** Soma de respostas de todos os alunos (nem todo aluno responde todas as perguntas). */
+  respostasEnquete: number;
   mediaEnquete: number | null;
 }
 
@@ -120,25 +139,28 @@ export class MetricasService {
       return { totalAulas: 0, alunosImpactados: 0, mediaAcertos: 0, engajamento: 0 };
     }
 
-    const [tentativas, resultadosEnquete] = await Promise.all([
+    const [tentativas, blocosEnquete] = await Promise.all([
       this.prisma.simuladoTentativa.findMany({
         where: { bloco: { aulaId: { in: aulaIds } } },
         select: { usuarioId: true, percentual: true, blocoId: true },
       }),
-      this.prisma.enqueteResultado.findMany({
-        where: { bloco: { aulaId: { in: aulaIds } } },
-        select: { pctAcerto: true, totalVotos: true, blocoId: true },
+      this.prisma.aulaBloco.findMany({
+        where: { aulaId: { in: aulaIds }, tipo: "enquete" },
+        select: {
+          id: true,
+          aulaId: true,
+          output: true,
+          aula: { select: { titulo: true } },
+        },
       }),
     ]);
+    const resultadosEnquete = await this.resultadosEnqueteDosBlocos(blocosEnquete);
 
     const blocosComResposta = new Set<string>();
-    const aulaPorBloco = await this.mapaAulaPorBloco([
-      ...tentativas.map((t) => t.blocoId),
-      ...resultadosEnquete.map((r) => r.blocoId),
-    ]);
+    const aulaPorBloco = await this.mapaAulaPorBloco(tentativas.map((t) => t.blocoId));
     for (const t of tentativas) blocosComResposta.add(aulaPorBloco.get(t.blocoId) ?? "");
     for (const r of resultadosEnquete) {
-      if (r.totalVotos > 0) blocosComResposta.add(aulaPorBloco.get(r.blocoId) ?? "");
+      if (r.totalVotos > 0) blocosComResposta.add(r.aulaId);
     }
     blocosComResposta.delete("");
 
@@ -172,60 +194,80 @@ export class MetricasService {
       };
     }
 
-    const [blocosSimulado, blocosEnquete, tentativas, resultadosEnquete] =
-      await Promise.all([
-        this.prisma.aulaBloco.findMany({
-          where: { aulaId: { in: aulaIds }, tipo: "simulado" },
-          select: {
-            id: true,
-            aulaId: true,
-            output: true,
-            aula: { select: { titulo: true } },
-          },
-        }),
-        this.prisma.aulaBloco.findMany({
-          where: { aulaId: { in: aulaIds }, tipo: "enquete" },
-          select: {
-            id: true,
-            aulaId: true,
-            output: true,
-            aula: { select: { titulo: true } },
-          },
-        }),
-        this.prisma.simuladoTentativa.findMany({
-          where: { bloco: { aulaId: { in: aulaIds } } },
-        }),
-        this.prisma.enqueteResultado.findMany({
-          where: { bloco: { aulaId: { in: aulaIds } } },
-        }),
-      ]);
+    const [blocosSimulado, blocosEnquete, tentativas] = await Promise.all([
+      this.prisma.aulaBloco.findMany({
+        where: { aulaId: { in: aulaIds }, tipo: "simulado" },
+        select: {
+          id: true,
+          aulaId: true,
+          output: true,
+          aula: { select: { titulo: true } },
+        },
+      }),
+      this.prisma.aulaBloco.findMany({
+        where: { aulaId: { in: aulaIds }, tipo: "enquete" },
+        select: {
+          id: true,
+          aulaId: true,
+          output: true,
+          aula: { select: { titulo: true } },
+        },
+      }),
+      this.prisma.simuladoTentativa.findMany({
+        where: { bloco: { aulaId: { in: aulaIds } } },
+      }),
+    ]);
+    const resultadosEnquete = await this.resultadosEnqueteDosBlocos(blocosEnquete);
 
     // ---- Desempenho por aluno na enquete (lido direto do poll360 — é ele
-    // quem sabe quem votou o quê; aqui só guardamos o agregado por opção) ----
+    // quem sabe quem votou o quê) ----
+    const packageIdPorAula = new Map<string, string | null>();
     const pacotesEnquete = blocosEnquete
       .map((b) => {
         const output = asObject(b.output) ?? {};
         const packageId = output.poll360PackageId;
-        return typeof packageId === "string" && packageId
-          ? {
-              packageId,
-              nomeCampoId:
-                typeof output.poll360NomeCampoId === "string"
-                  ? output.poll360NomeCampoId
-                  : null,
-            }
-          : null;
+        const pacote =
+          typeof packageId === "string" && packageId
+            ? {
+                packageId,
+                nomeCampoId:
+                  typeof output.poll360NomeCampoId === "string"
+                    ? output.poll360NomeCampoId
+                    : null,
+              }
+            : null;
+        packageIdPorAula.set(b.aulaId, pacote?.packageId ?? null);
+        return pacote;
       })
       .filter((p): p is { packageId: string; nomeCampoId: string | null } => p !== null);
-    const desempenhoPorAlunoEnquete: DesempenhoAlunoEnquete[] = (
-      await this.poll360Db.desempenhoPorAluno(pacotesEnquete)
-    )
-      .filter((a) => a.total > 0)
-      .map((a) => ({
-        email: a.email,
-        nome: a.nome,
-        respostas: a.total,
-        mediaAcertos: Math.round((100 * a.acertos) / a.total),
+
+    // Uma linha por (pacote, aluno) — usada tanto pra lista geral (agregando
+    // por e-mail através de todas as aulas) quanto pro "Por aula" (agrupando
+    // por pacote, já que cada aula tem no máximo um pacote de enquete).
+    const porAlunoPorPacote = await this.poll360Db.desempenhoPorAluno(pacotesEnquete);
+
+    const pooledPorEmail = new Map<
+      string,
+      { nome: string | null; total: number; acertos: number }
+    >();
+    for (const r of porAlunoPorPacote) {
+      const atual = pooledPorEmail.get(r.email) ?? {
+        nome: r.nome,
+        total: 0,
+        acertos: 0,
+      };
+      atual.total += r.total;
+      atual.acertos += r.acertos;
+      if (r.nome) atual.nome = r.nome;
+      pooledPorEmail.set(r.email, atual);
+    }
+    const desempenhoPorAlunoEnquete: DesempenhoAlunoEnquete[] = [...pooledPorEmail.entries()]
+      .filter(([, v]) => v.total > 0)
+      .map(([email, v]) => ({
+        email,
+        nome: v.nome,
+        respostas: v.total,
+        mediaAcertos: Math.round((100 * v.acertos) / v.total),
       }))
       .sort((a, b) => a.mediaAcertos - b.mediaAcertos);
 
@@ -270,12 +312,12 @@ export class MetricasService {
       }
     }
 
-    // ---- Questões de enquete mais difíceis (já vêm agregadas) ----
+    // ---- Questões de enquete mais difíceis (lidas ao vivo do poll360) ----
     const questoesEnquete: QuestaoDificil[] = resultadosEnquete
       .filter((r) => r.totalVotos > 0)
       .map((r) => ({
-        aulaId: blocosEnquete.find((b) => b.id === r.blocoId)?.aulaId ?? "",
-        aulaTitulo: blocosEnquete.find((b) => b.id === r.blocoId)?.aula.titulo ?? "",
+        aulaId: r.aulaId,
+        aulaTitulo: r.aulaTitulo,
         blocoId: r.blocoId,
         tipo: "enquete" as const,
         enunciado: r.enunciado,
@@ -318,10 +360,15 @@ export class MetricasService {
           (t) => blocosSimulado.find((b) => b.id === t.blocoId)?.aulaId === aulaId,
         );
         const resultadosDaAula = resultadosEnquete.filter(
-          (r) =>
-            blocosEnquete.find((b) => b.id === r.blocoId)?.aulaId === aulaId &&
-            r.totalVotos > 0,
+          (r) => r.aulaId === aulaId && r.totalVotos > 0,
         );
+        // Média por ALUNO (não por pergunta): mesma lógica do simulado —
+        // cada aluno pesa igual, não cada questão. Uma pergunta com só 1
+        // resposta não deve empatar em peso com uma com 10.
+        const packageId = packageIdPorAula.get(aulaId);
+        const alunosDaAula = packageId
+          ? porAlunoPorPacote.filter((a) => a.packageId === packageId && a.total > 0)
+          : [];
         return {
           aulaId,
           aulaTitulo,
@@ -331,9 +378,10 @@ export class MetricasService {
               ? avg(tentativasDaAula.map((t) => t.percentual))
               : null,
           questoesEnquete: resultadosDaAula.length,
+          respostasEnquete: alunosDaAula.reduce((soma, a) => soma + a.total, 0),
           mediaEnquete:
-            resultadosDaAula.length > 0
-              ? avg(resultadosDaAula.map((r) => r.pctAcerto))
+            alunosDaAula.length > 0
+              ? avg(alunosDaAula.map((a) => Math.round((100 * a.acertos) / a.total)))
               : null,
         };
       },
@@ -452,6 +500,92 @@ export class MetricasService {
     }
 
     return insights;
+  }
+
+  /**
+   * Total de votos e % de acerto por pergunta de enquete, lido AO VIVO do
+   * poll360 (voto individual) — não usa mais o snapshot que gravávamos em
+   * `EnqueteResultado`, porque ele só capturava o resultado no instante em
+   * que o professor encerrava a questão (perdendo voto de quem respondeu
+   * antes/depois desse instante e ficando com contagem errada).
+   */
+  private async resultadosEnqueteDosBlocos(
+    blocosEnquete: BlocoEnqueteRow[],
+  ): Promise<ResultadoEnquete[]> {
+    interface BlocoInfo {
+      blocoId: string;
+      aulaId: string;
+      aulaTitulo: string;
+      packageId: string | null;
+      enunciadoPorPollId: Map<string, string>;
+    }
+
+    const blocosInfo: BlocoInfo[] = blocosEnquete.map((bloco) => {
+      const output = asObject(bloco.output) ?? {};
+      const packageId =
+        typeof output.poll360PackageId === "string" && output.poll360PackageId
+          ? output.poll360PackageId
+          : null;
+      const pollIds = Array.isArray(output.poll360PollIds)
+        ? output.poll360PollIds.filter(
+            (id): id is string => typeof id === "string",
+          )
+        : [];
+      const perguntas = Array.isArray(output.perguntas) ? output.perguntas : [];
+
+      const enunciadoPorPollId = new Map<string, string>();
+      pollIds.forEach((pollId, index) => {
+        const pergunta = asObject(perguntas[index]);
+        const enunciado =
+          typeof pergunta?.enunciado === "string"
+            ? pergunta.enunciado
+            : `Questão ${index + 1}`;
+        enunciadoPorPollId.set(pollId, enunciado);
+      });
+
+      return {
+        blocoId: bloco.id,
+        aulaId: bloco.aulaId,
+        aulaTitulo: bloco.aula.titulo,
+        packageId,
+        enunciadoPorPollId,
+      };
+    });
+
+    // Busca pelo PACOTE inteiro (não só pelos `pollIds` que a gente guardou
+    // no bloco) — ver o porquê no comentário de `resultadosPorPacote`: sem
+    // isso, o "X questões" mostrado aqui podia ficar menor que o total real
+    // de perguntas usado no cálculo por aluno, que também é por pacote.
+    const packageIds = blocosInfo
+      .map((b) => b.packageId)
+      .filter((id): id is string => id !== null);
+    const totais = await this.poll360Db.resultadosPorPacote(packageIds);
+    const porPackageId = new Map<string, typeof totais>();
+    for (const t of totais) {
+      const lista = porPackageId.get(t.packageId) ?? [];
+      lista.push(t);
+      porPackageId.set(t.packageId, lista);
+    }
+
+    const resultados: ResultadoEnquete[] = [];
+    for (const bloco of blocosInfo) {
+      if (!bloco.packageId) continue;
+      const totaisDoPacote = porPackageId.get(bloco.packageId) ?? [];
+      totaisDoPacote.forEach((t, index) => {
+        const enunciado =
+          bloco.enunciadoPorPollId.get(t.pollId) ?? `Questão ${index + 1}`;
+        resultados.push({
+          blocoId: bloco.blocoId,
+          aulaId: bloco.aulaId,
+          aulaTitulo: bloco.aulaTitulo,
+          questaoIndex: index,
+          enunciado,
+          totalVotos: t.total,
+          pctAcerto: t.total > 0 ? Math.round((100 * t.acertos) / t.total) : 0,
+        });
+      });
+    }
+    return resultados;
   }
 
   /** blocoId -> aulaId, pra não repetir a mesma query em vários lugares. */

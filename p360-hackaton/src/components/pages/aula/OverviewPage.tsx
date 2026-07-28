@@ -246,7 +246,6 @@ function AulaCard({ aula }: { aula: Aula }) {
   const navigate = useNavigate();
   const remover = useRemoverAula();
   const data = new Date(aula.createdAt).toLocaleDateString("pt-BR");
-  const acertos = aula.metrica?.mediaAcertos ?? 0;
   const fotoUrl = buildFotoUrl(aula.casoImagem ?? null);
 
   const handleRemover = (e: React.MouseEvent) => {
@@ -313,41 +312,6 @@ function AulaCard({ aula }: { aula: Aula }) {
       <Text fontWeight="bold" color="gray.900" lineHeight="1.3" lineClamp={2}>
         {aula.titulo}
       </Text>
-
-      {aula.metrica && (
-        <Box mt="3">
-          <Flex justify="space-between" mb="1">
-            <Text fontSize="xs" color="gray.500">
-              Média de acertos
-            </Text>
-            <Text fontSize="xs" fontWeight="semibold" color="gray.700">
-              {acertos}%
-            </Text>
-          </Flex>
-          <Box h="6px" bg="gray.100" borderRadius="full" overflow="hidden">
-            <Box
-              h="full"
-              w={`${acertos}%`}
-              bg={
-                acertos >= 70
-                  ? "green.500"
-                  : acertos >= 50
-                    ? "orange.400"
-                    : "red.400"
-              }
-              borderRadius="full"
-            />
-          </Box>
-          <HStack gap="4" mt="2">
-            <Text fontSize="xs" color="gray.500">
-              👥 {aula.metrica.alunosTotal} alunos
-            </Text>
-            <Text fontSize="xs" color="gray.500">
-              ⚡ {aula.metrica.engajamento}% engaj.
-            </Text>
-          </HStack>
-        </Box>
-      )}
 
         <SequenciaBadges aula={aula} />
       </Box>

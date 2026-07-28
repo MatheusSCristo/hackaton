@@ -61,14 +61,11 @@ export class CasoColetaService {
     casoLegacyId: number;
     inicio: Date;
     fim: Date;
+    conectados: number;
   }): Promise<AgregadoCaso> {
-    const { turmaId, casoLegacyId, inicio, fim } = params;
+    const { turmaId, casoLegacyId, inicio, fim, conectados } = params;
 
-    const [alunos, eventos, tempos] = await Promise.all([
-      this.read.query<{ total: string }>(
-        `SELECT COUNT(*)::text AS total FROM turmausuario WHERE tma_id = $1`,
-        [turmaId],
-      ),
+    const [eventos, tempos] = await Promise.all([
       this.read.query<{ usuario_id: number; evento: string }>(
         `SELECT DISTINCT usuario_id, evento
            FROM caseevent
@@ -88,7 +85,9 @@ export class CasoColetaService {
       ),
     ]);
 
-    const alunosTotal = Number(alunos[0]?.total ?? 0);
+    // Denominador é quem estava CONECTADO na sala, não o total matriculado
+    // na turma no legado — não reflete quem realmente participou da sessão.
+    const alunosTotal = conectados;
 
     const porEvento = new Map<string, Set<number>>();
     const engajados = new Set<number>();
@@ -139,37 +138,35 @@ export class CasoColetaService {
   /**
    * Contador "X de Y concluíram", para o professor decidir quando encerrar.
    * Consulta leve — chamada periodicamente, não é stream de progresso.
+   *
+   * `alunosTotal` é quem está **conectado na sala agora** (não o total
+   * matriculado na turma no legado — não reflete quem realmente está
+   * presente). `iniciaram` fica sempre 0 por enquanto: o evento de "começou"
+   * do legado não é confiável o bastante pra mostrar ainda.
    */
   async progresso(params: {
     turmaId: number;
     casoLegacyId: number;
     inicio: Date;
     fim: Date;
+    conectados: number;
   }): Promise<{ concluidos: number; iniciaram: number; alunosTotal: number }> {
-    const { turmaId, casoLegacyId, inicio, fim } = params;
+    const { turmaId, casoLegacyId, inicio, fim, conectados } = params;
 
-    const [alunos, contagem] = await Promise.all([
-      this.read.query<{ total: string }>(
-        `SELECT COUNT(*)::text AS total FROM turmausuario WHERE tma_id = $1`,
-        [turmaId],
-      ),
-      this.read.query<{ concluidos: string; iniciaram: string }>(
-        `SELECT
-           COUNT(DISTINCT usuario_id) FILTER (WHERE evento = ANY($5))::text
-             AS concluidos,
-           COUNT(DISTINCT usuario_id)::text AS iniciaram
-           FROM caseevent
-          WHERE class_id = $1
-            AND caso_id = $2
-            AND createdat BETWEEN $3 AND $4`,
-        [turmaId, casoLegacyId, inicio, fim, EVENTOS_CONCLUSAO],
-      ),
-    ]);
+    const contagem = await this.read.query<{ concluidos: string }>(
+      `SELECT COUNT(DISTINCT usuario_id) FILTER (WHERE evento = ANY($5))::text
+             AS concluidos
+         FROM caseevent
+        WHERE class_id = $1
+          AND caso_id = $2
+          AND createdat BETWEEN $3 AND $4`,
+      [turmaId, casoLegacyId, inicio, fim, EVENTOS_CONCLUSAO],
+    );
 
     return {
-      alunosTotal: Number(alunos[0]?.total ?? 0),
+      alunosTotal: conectados,
       concluidos: Number(contagem[0]?.concluidos ?? 0),
-      iniciaram: Number(contagem[0]?.iniciaram ?? 0),
+      iniciaram: 0,
     };
   }
 }

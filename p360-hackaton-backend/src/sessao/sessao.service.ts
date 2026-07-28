@@ -302,6 +302,24 @@ export class SessaoService {
     };
   }
 
+  /**
+   * Quantos participantes entraram na sala da sessão mais recente desta aula
+   * — usado como denominador do progresso/desempenho do caso clínico em vez
+   * do total de matriculados na turma no legado, que não reflete quem
+   * realmente esteve na sala. Não filtra por status: tanto faz se a sessão
+   * ainda está rolando (contador ao vivo) ou já terminou (agregado
+   * pós-execução) — em ambos os casos é sempre a sessão mais recente da aula
+   * que importa.
+   */
+  async contarParticipantesAtivos(aulaId: string): Promise<number> {
+    const sessao = await this.prisma.sessaoAula.findFirst({
+      where: { aulaId },
+      orderBy: { createdAt: "desc" },
+      include: { _count: { select: { participantes: true } } },
+    });
+    return sessao?._count.participantes ?? 0;
+  }
+
   /** Usado pelo gate do bloco `caso`: o bloco está liberado agora? */
   async blocoEstaLiberado(sessaoId: string, blocoId: string): Promise<boolean> {
     const sessao = await this.prisma.sessaoAula.findUnique({

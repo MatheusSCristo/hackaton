@@ -156,12 +156,14 @@ export class CasoService {
       professorId,
     );
     const janela = this.lerJanela(output);
+    const conectados = await this.sessao.contarParticipantesAtivos(aulaId);
 
     const agregado = await this.coleta.agregar({
       turmaId: cfg.turmaId,
       casoLegacyId: cfg.casoLegacyId,
       inicio: janela.inicio,
       fim: janela.fim,
+      conectados,
     });
 
     const diagnostico = await this.diagnostico.diagnosticar(agregado, {
@@ -186,12 +188,14 @@ export class CasoService {
   ): Promise<{ concluidos: number; iniciaram: number; alunosTotal: number }> {
     const { output, cfg } = await this.carregar(aulaId, blocoId, professorId);
     const janela = this.lerJanela(output);
+    const conectados = await this.sessao.contarParticipantesAtivos(aulaId);
 
     return this.coleta.progresso({
       turmaId: cfg.turmaId,
       casoLegacyId: cfg.casoLegacyId,
       inicio: janela.inicio,
       fim: janela.fim,
+      conectados,
     });
   }
 

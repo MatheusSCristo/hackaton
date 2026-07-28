@@ -39,6 +39,8 @@ export interface DesempenhoPorAula {
   tentativasSimulado: number;
   mediaSimulado: number | null;
   questoesEnquete: number;
+  /** Soma de respostas de todos os alunos (nem todo aluno responde todas as perguntas). */
+  respostasEnquete: number;
   mediaEnquete: number | null;
 }
 

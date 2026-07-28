@@ -110,7 +110,10 @@ export default function MetricasPage() {
                 )}
               </Painel>
 
-              <Painel titulo="Por aula" descricao="Média de acerto — simulado vs. enquete.">
+              <Painel
+                titulo="Por aula"
+                descricao="Média de acerto por aluno — simulado vs. enquete. Cada aluno pesa igual, não cada pergunta/tentativa."
+              >
                 {data.porAula.length === 0 ? (
                   <Vazio texto="Nenhuma aula com dados ainda." />
                 ) : (
@@ -128,7 +131,7 @@ export default function MetricasPage() {
                         </Text>
                         {a.mediaSimulado !== null && (
                           <BarraHorizontal
-                            label={`Simulado (${a.tentativasSimulado} ${a.tentativasSimulado === 1 ? "tentativa" : "tentativas"})`}
+                            label={`Simulado — ${a.tentativasSimulado} ${a.tentativasSimulado === 1 ? "aluno respondeu" : "alunos responderam"}`}
                             pct={a.mediaSimulado}
                             cor={CORES.simulado}
                             valorLabel={`${a.mediaSimulado}%`}
@@ -136,7 +139,7 @@ export default function MetricasPage() {
                         )}
                         {a.mediaEnquete !== null && (
                           <BarraHorizontal
-                            label={`Enquete (${a.questoesEnquete} ${a.questoesEnquete === 1 ? "questão" : "questões"})`}
+                            label={`Enquete — ${a.questoesEnquete} ${a.questoesEnquete === 1 ? "pergunta" : "perguntas"} · ${a.respostasEnquete} ${a.respostasEnquete === 1 ? "resposta ao todo" : "respostas ao todo"}`}
                             pct={a.mediaEnquete}
                             cor={CORES.enquete}
                             valorLabel={`${a.mediaEnquete}%`}
