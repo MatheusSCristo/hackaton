@@ -53,12 +53,32 @@ export interface DesempenhoPorAula {
   mediaEnquete: number | null;
 }
 
+export interface FaixaDistribuicao {
+  faixa: string;
+  minimo: number;
+  quantidade: number;
+}
+
+export interface InsightMetrica {
+  tipo: "critico" | "atencao" | "positivo" | "info";
+  texto: string;
+}
+
 export interface MetricasDetalhadas {
   kpis: MetricasKpis;
+  insights: InsightMetrica[];
+  distribuicaoAcertos: FaixaDistribuicao[];
   questoesMaisDificeis: QuestaoDificil[];
   desempenhoPorAluno: DesempenhoAluno[];
   porAula: DesempenhoPorAula[];
 }
+
+const FAIXAS = [
+  { faixa: "0–25%", minimo: 0, max: 25 },
+  { faixa: "25–50%", minimo: 25, max: 50 },
+  { faixa: "50–75%", minimo: 50, max: 75 },
+  { faixa: "75–100%", minimo: 75, max: 101 },
+];
 
 /**
  * Métricas reais de aprendizagem — simulado e enquete, os dois lugares onde
@@ -125,7 +145,14 @@ export class MetricasService {
     const kpis = await this.kpis(professorId);
 
     if (aulaIds.length === 0) {
-      return { kpis, questoesMaisDificeis: [], desempenhoPorAluno: [], porAula: [] };
+      return {
+        kpis,
+        insights: [],
+        distribuicaoAcertos: [],
+        questoesMaisDificeis: [],
+        desempenhoPorAluno: [],
+        porAula: [],
+      };
     }
 
     const [blocosSimulado, blocosEnquete, tentativas, resultadosEnquete] =
@@ -255,7 +282,112 @@ export class MetricasService {
       },
     );
 
-    return { kpis, questoesMaisDificeis, desempenhoPorAluno, porAula };
+    // ---- Distribuição de desempenho (simulado — é o que tem tentativa individual) ----
+    const distribuicaoAcertos: FaixaDistribuicao[] = FAIXAS.map(
+      ({ faixa, minimo, max }) => ({
+        faixa,
+        minimo,
+        quantidade: tentativas.filter((t) => t.percentual >= minimo && t.percentual < max)
+          .length,
+      }),
+    );
+
+    const insights = this.gerarInsights({
+      kpis,
+      questoesMaisDificeis,
+      desempenhoPorAluno,
+      porAula,
+    });
+
+    return {
+      kpis,
+      insights,
+      distribuicaoAcertos,
+      questoesMaisDificeis,
+      desempenhoPorAluno,
+      porAula,
+    };
+  }
+
+  /**
+   * Destaques computados na hora (sem LLM — é aritmética sobre o que já
+   * temos, mais rápido e determinístico que pedir pra uma IA "olhar" os
+   * mesmos números).
+   */
+  private gerarInsights(dados: {
+    kpis: MetricasKpis;
+    questoesMaisDificeis: QuestaoDificil[];
+    desempenhoPorAluno: DesempenhoAluno[];
+    porAula: DesempenhoPorAula[];
+  }): InsightMetrica[] {
+    const insights: InsightMetrica[] = [];
+    const { kpis, questoesMaisDificeis, desempenhoPorAluno, porAula } = dados;
+
+    if (kpis.mediaAcertos > 0) {
+      if (kpis.mediaAcertos < 50) {
+        insights.push({
+          tipo: "critico",
+          texto: `A média geral de acerto está em ${kpis.mediaAcertos}% — bem abaixo do ideal (70%). Vale revisar os fundamentos antes de avançar.`,
+        });
+      } else if (kpis.mediaAcertos >= 70) {
+        insights.push({
+          tipo: "positivo",
+          texto: `A turma está com uma boa média geral de acerto (${kpis.mediaAcertos}%).`,
+        });
+      }
+    }
+
+    const piorQuestao = questoesMaisDificeis[0];
+    if (piorQuestao && piorQuestao.pctAcerto < 50) {
+      const enunciadoCurto =
+        piorQuestao.enunciado.length > 90
+          ? `${piorQuestao.enunciado.slice(0, 90)}…`
+          : piorQuestao.enunciado;
+      insights.push({
+        tipo: "critico",
+        texto: `A questão "${enunciadoCurto}" (${piorQuestao.aulaTitulo}) teve só ${piorQuestao.pctAcerto}% de acerto — o maior sinal de dificuldade que a turma mostrou.`,
+      });
+    }
+
+    const comDados = desempenhoPorAluno.filter((a) => a.tentativas > 0);
+    if (comDados.length > 0) {
+      const abaixoDe50 = comDados.filter((a) => a.mediaAcertos < 50);
+      if (abaixoDe50.length > 0) {
+        const pct = Math.round((100 * abaixoDe50.length) / comDados.length);
+        insights.push({
+          tipo: "atencao",
+          texto: `${abaixoDe50.length} de ${comDados.length} alunos (${pct}%) estão com média abaixo de 50% no simulado — podem precisar de atenção individual.`,
+        });
+      }
+    }
+
+    const aulasComAmbos = porAula.filter(
+      (a) => a.mediaSimulado !== null && a.mediaEnquete !== null,
+    );
+    if (aulasComAmbos.length > 0) {
+      const mediaSimulado = avg(
+        aulasComAmbos.map((a) => a.mediaSimulado as number),
+      );
+      const mediaEnquete = avg(aulasComAmbos.map((a) => a.mediaEnquete as number));
+      const diferenca = Math.abs(mediaSimulado - mediaEnquete);
+      if (diferenca >= 15) {
+        const melhor = mediaSimulado > mediaEnquete ? "simulado" : "enquete";
+        const pior = mediaSimulado > mediaEnquete ? "enquete" : "simulado";
+        insights.push({
+          tipo: "info",
+          texto: `A turma vai melhor em ${melhor} do que em ${pior} (${Math.max(mediaSimulado, mediaEnquete)}% vs ${Math.min(mediaSimulado, mediaEnquete)}%) — perguntas de múltipla escolha e ao vivo parecem medir coisas diferentes aqui.`,
+        });
+      }
+    }
+
+    if (kpis.engajamento > 0 && kpis.engajamento < 40) {
+      insights.push({
+        tipo: "atencao",
+        texto: `Só ${kpis.engajamento}% das aulas têm alguma resposta registrada — considere disponibilizar simulado ou enquete com mais frequência para ter mais sinal sobre o aprendizado da turma.`,
+      });
+    }
+
+    return insights;
   }
 
   /** blocoId -> aulaId, pra não repetir a mesma query em vários lugares. */

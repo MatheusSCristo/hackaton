@@ -33,8 +33,21 @@ export interface DesempenhoPorAula {
   mediaEnquete: number | null;
 }
 
+export interface FaixaDistribuicao {
+  faixa: string;
+  minimo: number;
+  quantidade: number;
+}
+
+export interface InsightMetrica {
+  tipo: "critico" | "atencao" | "positivo" | "info";
+  texto: string;
+}
+
 export interface MetricasDetalhadas {
   kpis: MetricasKpis;
+  insights: InsightMetrica[];
+  distribuicaoAcertos: FaixaDistribuicao[];
   questoesMaisDificeis: QuestaoDificil[];
   desempenhoPorAluno: DesempenhoAluno[];
   porAula: DesempenhoPorAula[];

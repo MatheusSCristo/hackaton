@@ -1,10 +1,8 @@
 import { useNavigate } from "react-router";
 import {
-  Badge,
   Box,
   Flex,
   Heading,
-  HStack,
   SimpleGrid,
   Spinner,
   Stack,
@@ -15,21 +13,18 @@ import {
   Activity,
   AlertTriangle,
   BookOpen,
+  CheckCircle2,
+  Info,
+  OctagonAlert,
   Target,
   Users,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 import AppIcon from "../aula/AppIcon";
+import { BarraHorizontal, CORES, DistribuicaoChart, Legenda, corPorPct } from "./charts";
 import { useMetricasDetalhadas } from "@/hooks/useMetricas";
-import type {
-  DesempenhoAluno,
-  DesempenhoPorAula,
-  QuestaoDificil,
-} from "@/services/metricas";
-
-const corPct = (pct: number): string =>
-  pct >= 70 ? "green" : pct >= 50 ? "orange" : "red";
+import type { InsightMetrica, QuestaoDificil } from "@/services/metricas";
 
 export default function MetricasPage() {
   const navigate = useNavigate();
@@ -38,12 +33,7 @@ export default function MetricasPage() {
   return (
     <Box minH="100vh" bg="gray.50">
       <Box bg="white" borderBottomWidth="1px" borderColor="gray.200">
-        <Flex
-          px={{ base: 4, md: 8 }}
-          py="5"
-          direction="column"
-          gap="1"
-        >
+        <Flex px={{ base: 4, md: 8 }} py="5" direction="column" gap="1">
           <Flex
             as="button"
             align="center"
@@ -72,7 +62,7 @@ export default function MetricasPage() {
             <Spinner color="blue.500" />
           </Flex>
         ) : (
-          <Stack gap="6">
+          <Stack gap="6" maxW="1100px" mx="auto">
             <SimpleGrid columns={{ base: 2, md: 4 }} gap="4">
               <StatTile
                 icon={BookOpen}
@@ -100,14 +90,78 @@ export default function MetricasPage() {
               />
             </SimpleGrid>
 
+            {data.insights.length > 0 && (
+              <Stack gap="2">
+                {data.insights.map((insight, i) => (
+                  <InsightCard key={i} insight={insight} />
+                ))}
+              </Stack>
+            )}
+
+            <SimpleGrid columns={{ base: 1, lg: 2 }} gap="6">
+              <Painel
+                titulo="Distribuição de desempenho"
+                descricao="Quantos alunos caem em cada faixa de acerto no simulado."
+              >
+                {data.distribuicaoAcertos.every((f) => f.quantidade === 0) ? (
+                  <Vazio texto="Ainda não há tentativas de simulado registradas." />
+                ) : (
+                  <DistribuicaoChart faixas={data.distribuicaoAcertos} />
+                )}
+              </Painel>
+
+              <Painel titulo="Por aula" descricao="Média de acerto — simulado vs. enquete.">
+                {data.porAula.length === 0 ? (
+                  <Vazio texto="Nenhuma aula com dados ainda." />
+                ) : (
+                  <Stack gap="4">
+                    <Legenda
+                      itens={[
+                        { cor: CORES.simulado, label: "Simulado" },
+                        { cor: CORES.enquete, label: "Enquete" },
+                      ]}
+                    />
+                    {data.porAula.map((a) => (
+                      <Stack key={a.aulaId} gap="1.5">
+                        <Text fontSize="xs" fontWeight="semibold" color="gray.700" truncate>
+                          {a.aulaTitulo}
+                        </Text>
+                        {a.mediaSimulado !== null && (
+                          <BarraHorizontal
+                            label={`Simulado (${a.tentativasSimulado} ${a.tentativasSimulado === 1 ? "tentativa" : "tentativas"})`}
+                            pct={a.mediaSimulado}
+                            cor={CORES.simulado}
+                            valorLabel={`${a.mediaSimulado}%`}
+                          />
+                        )}
+                        {a.mediaEnquete !== null && (
+                          <BarraHorizontal
+                            label={`Enquete (${a.questoesEnquete} ${a.questoesEnquete === 1 ? "questão" : "questões"})`}
+                            pct={a.mediaEnquete}
+                            cor={CORES.enquete}
+                            valorLabel={`${a.mediaEnquete}%`}
+                          />
+                        )}
+                        {a.mediaSimulado === null && a.mediaEnquete === null && (
+                          <Text fontSize="2xs" color="gray.400">
+                            Sem respostas ainda.
+                          </Text>
+                        )}
+                      </Stack>
+                    ))}
+                  </Stack>
+                )}
+              </Painel>
+            </SimpleGrid>
+
             <Painel
               titulo="Questões com mais dificuldade"
-              descricao="As perguntas (de simulado ou enquete) onde a turma mais erra — priorize reforçar esses pontos."
+              descricao="As perguntas (simulado ou enquete) onde a turma mais erra — priorize reforçar esses pontos."
             >
               {data.questoesMaisDificeis.length === 0 ? (
                 <Vazio texto="Ainda não há respostas de simulado ou enquete suficientes." />
               ) : (
-                <Stack gap="2">
+                <Stack gap="3">
                   {data.questoesMaisDificeis.map((q, i) => (
                     <QuestaoRow key={`${q.blocoId}-${i}`} questao={q} />
                   ))}
@@ -117,27 +171,27 @@ export default function MetricasPage() {
 
             <Painel
               titulo="Desempenho por aluno"
-              descricao="Só simulado — a enquete não identifica quem respondeu. Ordenado do menor pro maior desempenho."
+              descricao="Só simulado — a enquete não identifica quem respondeu. Piores desempenhos primeiro."
             >
               {data.desempenhoPorAluno.length === 0 ? (
                 <Vazio texto="Ainda não há tentativas de simulado registradas." />
               ) : (
-                <Stack gap="1">
-                  {data.desempenhoPorAluno.map((a) => (
-                    <AlunoRow key={a.usuarioId} aluno={a} />
+                <Stack gap="2.5">
+                  {data.desempenhoPorAluno.slice(0, 12).map((a) => (
+                    <BarraHorizontal
+                      key={a.usuarioId}
+                      label={a.nome ?? `Aluno ${a.usuarioId}`}
+                      sublabel={`${a.tentativas} ${a.tentativas === 1 ? "tentativa" : "tentativas"}`}
+                      pct={a.mediaAcertos}
+                      cor={corPorPct(a.mediaAcertos)}
+                      valorLabel={`${a.mediaAcertos}%`}
+                    />
                   ))}
-                </Stack>
-              )}
-            </Painel>
-
-            <Painel titulo="Por aula" descricao="Visão consolidada de cada aula.">
-              {data.porAula.length === 0 ? (
-                <Vazio texto="Nenhuma aula com dados ainda." />
-              ) : (
-                <Stack gap="2">
-                  {data.porAula.map((a) => (
-                    <AulaRow key={a.aulaId} aula={a} />
-                  ))}
+                  {data.desempenhoPorAluno.length > 12 && (
+                    <Text fontSize="2xs" color="gray.400">
+                      +{data.desempenhoPorAluno.length - 12} outros alunos
+                    </Text>
+                  )}
                 </Stack>
               )}
             </Painel>
@@ -174,6 +228,38 @@ function StatTile({
   );
 }
 
+const INSIGHT_ESTILO: Record<
+  InsightMetrica["tipo"],
+  { bg: string; borda: string; cor: string; icon: LucideIcon }
+> = {
+  critico: { bg: "red.50", borda: "red.200", cor: "#d03b3b", icon: OctagonAlert },
+  atencao: { bg: "orange.50", borda: "orange.200", cor: "#fab219", icon: AlertTriangle },
+  positivo: { bg: "green.50", borda: "green.200", cor: "#0ca30c", icon: CheckCircle2 },
+  info: { bg: "blue.50", borda: "blue.200", cor: "#2a78d6", icon: Info },
+};
+
+function InsightCard({ insight }: { insight: InsightMetrica }) {
+  const estilo = INSIGHT_ESTILO[insight.tipo];
+  return (
+    <Flex
+      align="flex-start"
+      gap="2.5"
+      bg={estilo.bg}
+      borderWidth="1px"
+      borderColor={estilo.borda}
+      borderRadius="lg"
+      p="3"
+    >
+      <Box mt="0.5" flexShrink={0}>
+        <AppIcon icon={estilo.icon} size={16} color={estilo.cor} />
+      </Box>
+      <Text fontSize="sm" color="gray.800">
+        {insight.texto}
+      </Text>
+    </Flex>
+  );
+}
+
 function Painel({
   titulo,
   descricao,
@@ -199,79 +285,37 @@ function Painel({
 }
 
 function QuestaoRow({ questao }: { questao: QuestaoDificil }) {
-  const cor = corPct(questao.pctAcerto);
+  const cor = corPorPct(questao.pctAcerto);
   return (
     <Box borderWidth="1px" borderColor="gray.100" borderRadius="lg" p="3">
       <Flex justify="space-between" align="flex-start" gap="3" wrap="wrap" mb="1.5">
-        <HStack gap="2" wrap="wrap">
-          <Badge
-            variant="subtle"
-            colorPalette={questao.tipo === "simulado" ? "green" : "purple"}
-            borderRadius="full"
+        <Flex align="center" gap="2" wrap="wrap">
+          <Box
+            as="span"
             fontSize="2xs"
+            fontWeight="semibold"
+            textTransform="uppercase"
+            color={questao.tipo === "simulado" ? CORES.simulado : CORES.enquete}
+            bg={questao.tipo === "simulado" ? "blue.50" : "orange.50"}
+            borderRadius="full"
+            px="2"
+            py="0.5"
           >
             {questao.tipo === "simulado" ? "Simulado" : "Enquete"}
-          </Badge>
+          </Box>
           <Text fontSize="xs" color="gray.400">
             {questao.aulaTitulo}
           </Text>
-        </HStack>
-        <HStack gap="1.5" flexShrink={0}>
-          {questao.pctAcerto < 50 && <AlertTriangle size={13} color="#C53030" />}
-          <Badge variant="subtle" colorPalette={cor} borderRadius="full" fontSize="xs">
-            {questao.pctAcerto}% de acerto
-          </Badge>
-        </HStack>
+        </Flex>
       </Flex>
-      <Text fontSize="sm" color="gray.800" mb="1">
-        {questao.enunciado}
-      </Text>
-      <Box h="6px" bg="gray.100" borderRadius="full" overflow="hidden" mb="1">
-        <Box h="full" w={`${questao.pctAcerto}%`} bg={`${cor}.500`} borderRadius="full" />
-      </Box>
-      <Text fontSize="2xs" color="gray.400">
-        {questao.respostas} {questao.respostas === 1 ? "resposta" : "respostas"}
-      </Text>
+      <BarraHorizontal
+        label={questao.enunciado}
+        sublabel={`${questao.respostas} ${questao.respostas === 1 ? "resposta" : "respostas"}`}
+        pct={questao.pctAcerto}
+        cor={cor}
+        valorLabel={`${questao.pctAcerto}% de acerto`}
+      />
     </Box>
-  );
-}
-
-function AlunoRow({ aluno }: { aluno: DesempenhoAluno }) {
-  const cor = corPct(aluno.mediaAcertos);
-  return (
-    <Flex justify="space-between" align="center" gap="3" py="2" borderBottomWidth="1px" borderColor="gray.50">
-      <Text fontSize="sm" color="gray.800" truncate>
-        {aluno.nome ?? `Aluno ${aluno.usuarioId}`}
-      </Text>
-      <HStack gap="3" flexShrink={0}>
-        <Text fontSize="xs" color="gray.500">
-          {aluno.tentativas} {aluno.tentativas === 1 ? "tentativa" : "tentativas"}
-        </Text>
-        <Badge variant="subtle" colorPalette={cor} borderRadius="full" fontSize="xs">
-          {aluno.mediaAcertos}%
-        </Badge>
-      </HStack>
-    </Flex>
-  );
-}
-
-function AulaRow({ aula }: { aula: DesempenhoPorAula }) {
-  return (
-    <Flex justify="space-between" align="center" gap="3" py="2" borderBottomWidth="1px" borderColor="gray.50" wrap="wrap">
-      <Text fontSize="sm" color="gray.800" flex="1" minW="160px" truncate>
-        {aula.aulaTitulo}
-      </Text>
-      <HStack gap="4" flexShrink={0}>
-        <Text fontSize="xs" color="gray.500">
-          Simulado: {aula.tentativasSimulado} ·{" "}
-          {aula.mediaSimulado !== null ? `${aula.mediaSimulado}%` : "—"}
-        </Text>
-        <Text fontSize="xs" color="gray.500">
-          Enquete: {aula.questoesEnquete} ·{" "}
-          {aula.mediaEnquete !== null ? `${aula.mediaEnquete}%` : "—"}
-        </Text>
-      </HStack>
-    </Flex>
   );
 }
 
