@@ -5,6 +5,15 @@ import Environment from "@/config/env";
 import type { EstadoSessao } from "@/services/sessao";
 
 const WS_PATH = "/ws/sessao";
+/**
+ * Reemitir "entrar" periodicamente força o servidor a recontar quem está
+ * REALMENTE na sala (`rooms.get(...).size`, a fonte da verdade) e reemitir a
+ * presença pra todo mundo — uma rede de segurança contra qualquer evento de
+ * desconexão que não tenha disparado do jeito esperado (rede instável,
+ * navegador fechado à força etc.), pra o contador nunca ficar "preso" num
+ * valor errado por muito tempo.
+ */
+const RESSINCRONIZAR_PRESENCA_MS = 12_000;
 
 /**
  * Assina o canal ao vivo da sessão.
@@ -48,7 +57,12 @@ export function useSessaoLive(codigo: string | undefined) {
       setErro(e?.mensagem ?? "Erro na sessão."),
     );
 
+    const ressincronizar = setInterval(() => {
+      if (socket.connected) entrar();
+    }, RESSINCRONIZAR_PRESENCA_MS);
+
     return () => {
+      clearInterval(ressincronizar);
       socket.removeAllListeners();
       socket.disconnect();
       socketRef.current = null;

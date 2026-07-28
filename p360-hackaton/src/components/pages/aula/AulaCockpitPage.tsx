@@ -242,7 +242,6 @@ function BlocoCard({ aulaId, bloco, posicao, sessao }: BlocoCardProps) {
             bloco.tipo as "slides" | "simulado" | "resumo" | "material_complementar"
           }
           liberado={liberado}
-          sessaoAtiva={sessao?.status === "ativa"}
         />
       )}
 

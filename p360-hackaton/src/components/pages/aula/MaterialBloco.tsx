@@ -68,8 +68,6 @@ interface MaterialBlocoProps {
   tipo: TipoMaterial;
   /** Bloco liberado agora — usado para acompanhar respostas do simulado. */
   liberado: boolean;
-  /** Sessão confirmada ("ativa") — sem isso, não dá pra disponibilizar nada pra turma. */
-  sessaoAtiva: boolean;
 }
 
 /**
@@ -84,7 +82,6 @@ export default function MaterialBloco({
   bloco,
   tipo,
   liberado,
-  sessaoAtiva,
 }: MaterialBlocoProps) {
   const [personalizando, setPersonalizando] = useState(false);
   const atualizar = useUpdateBloco(aulaId);
@@ -173,7 +170,6 @@ export default function MaterialBloco({
             icon={publicado ? EyeOff : Share2}
             size="sm"
             isLoading={publicar.isPending}
-            disabled={!publicado && !sessaoAtiva}
             onClick={() =>
               publicar.mutate({ blocoId: bloco.id, publicado: !publicado })
             }
@@ -198,12 +194,6 @@ export default function MaterialBloco({
             </CustomButton>
           )}
         </HStack>
-      )}
-
-      {gerado && momentoDoTipo(tipo) === "pos_aula" && !publicado && !sessaoAtiva && (
-        <Text fontSize="2xs" color="gray.400" mb="3">
-          Confirme o início da sessão para poder disponibilizar este material para a turma.
-        </Text>
       )}
 
       {publicado && tipo === "simulado" && (

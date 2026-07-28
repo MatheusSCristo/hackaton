@@ -28,6 +28,14 @@ function sala(codigo: string): string {
 @WebSocketGateway({
   path: PATH,
   cors: { origin: "*" },
+  // Fechar um app/aba sem o handshake normal (matar o processo, trocar de
+  // rede no celular, etc.) só é percebido pelo servidor quando o heartbeat
+  // expira — com o default do socket.io (pingInterval 25s + pingTimeout
+  // 20s) isso podia levar quase 45s, e o contador de conectados ficava
+  // "preso" nesse meio tempo. Reduzido pra detectar bem mais rápido sem
+  // ficar agressivo demais com redes mais lentas.
+  pingInterval: 10_000,
+  pingTimeout: 8_000,
 })
 export class SessaoGateway {
   private readonly logger = new Logger(SessaoGateway.name);

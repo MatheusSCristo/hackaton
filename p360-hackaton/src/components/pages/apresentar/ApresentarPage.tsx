@@ -114,6 +114,19 @@ export default function ApresentarPage() {
     liberarEtapa(alvo);
   };
 
+  // `irPara` só libera a etapa quando o professor clica em "Próxima
+  // etapa"/numa badge — mas ao ABRIR esta tela (ou reabri-la depois), o
+  // `bloco` atual já é exibido localmente sem nunca ter sido liberado de
+  // verdade na sessão. Resultado: o professor vê os slides passando, mas a
+  // turma conectada nunca recebe nada (ficava esperando pra sempre). Este
+  // efeito garante que a etapa em tela esteja sempre liberada na sessão,
+  // não só localmente — idempotente, então não tem problema repetir a
+  // mesma chamada que `irPara` já fez.
+  useEffect(() => {
+    liberarEtapa(bloco);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bloco?.id, sessao?.sessaoId]);
+
   // Sem token não há o que apresentar: toda chamada daria 401. Melhor explicar
   // do que deixar o console cuspindo Unauthorized.
   if (!getAccessToken()) {
