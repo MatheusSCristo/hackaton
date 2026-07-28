@@ -2,9 +2,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   baixarMaterial,
+  enviarBaseDeSlides,
   gerarMaterial,
   getResultadosSimulado,
   getSlidesAluno,
+  removerBaseDeSlides,
 } from "@/services/materiais";
 
 export function useGerarMaterial(aulaId: string | undefined) {
@@ -26,6 +28,35 @@ export function useBaixarMaterial(aulaId: string | undefined) {
       blocoId: string;
       nomeSugerido: string;
     }) => baixarMaterial(aulaId as string, blocoId, nomeSugerido),
+  });
+}
+
+/**
+ * Slide pessoal do professor como base da geração.
+ *
+ * A rota e o parsing do `.pptx` já existem no backend; o que está desligado é o
+ * botão (ver `BaseDeSlides` em `MaterialBloco`). Ligar de novo é trocar o
+ * componente do botão por um que chame estes hooks.
+ */
+export function useDefinirBaseDeSlides(aulaId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ blocoId, arquivo }: { blocoId: string; arquivo: File }) =>
+      enviarBaseDeSlides(aulaId as string, blocoId, arquivo),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["aulas", aulaId, "blocos"] });
+    },
+  });
+}
+
+export function useRemoverBaseDeSlides(aulaId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (blocoId: string) =>
+      removerBaseDeSlides(aulaId as string, blocoId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["aulas", aulaId, "blocos"] });
+    },
   });
 }
 

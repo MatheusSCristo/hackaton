@@ -20,6 +20,7 @@ import {
   Download,
   EyeOff,
   FileText,
+  FileUp,
   Globe,
   LockKeyhole,
   RefreshCw,
@@ -150,6 +151,8 @@ export default function MaterialBloco({
           </CustomButton>
         )}
 
+        {tipo === "slides" && <BaseDeSlides />}
+
         <CustomButton
           variant="ghost"
           icon={Settings2}
@@ -265,6 +268,35 @@ export default function MaterialBloco({
         <ResultadosSimulado dados={resultados.data} liberado={liberado} />
       )}
     </Box>
+  );
+}
+
+/**
+ * "Utilizar Slide Pessoal Como Base" — **anúncio, não função ainda.**
+ *
+ * A ideia é o professor subir o `.pptx` dele e a geração partir daquele roteiro:
+ * quem já tem a aula pronta não quer trocá-la por uma da IA, quer que ela
+ * complete e adapte ao caso. Fica visível desde já porque é a dúvida que todo
+ * professor tem ao ver "Gerar com IA" ("e a minha aula?").
+ *
+ * Desabilitado de propósito: prometer na interface o que não funciona custa mais
+ * confiança do que não ter o botão.
+ */
+function BaseDeSlides() {
+  return (
+    <>
+      <CustomButton variant="outline" icon={FileUp} size="sm" disabled>
+        Utilizar Slide Pessoal Como Base
+      </CustomButton>
+      <Badge
+        variant="subtle"
+        colorPalette="gray"
+        borderRadius="full"
+        fontSize="2xs"
+      >
+        em breve
+      </Badge>
+    </>
   );
 }
 

@@ -21,6 +21,7 @@ import { entrarSessao, getEstadoPorCodigo } from "@/services/sessao";
 import type { EstadoSessao } from "@/services/sessao";
 import type { Bloco } from "@/services/blocos";
 import { getAccessToken } from "@/utils/accessToken";
+import { urlDeEntradaNaEnquete } from "@/utils/enquete";
 import { irParaLogin } from "@/utils/login";
 
 const TITULO_CONTEUDO: Record<string, string> = {
@@ -207,12 +208,14 @@ function AtividadeAtual({ estado }: { estado: EstadoSessao }) {
   }
 
   if (bloco.tipo === "enquete") {
-    const joinUrl =
-      typeof bloco.output?.joinUrl === "string" ? bloco.output.joinUrl : null;
     const pin =
       typeof bloco.output?.accessPin === "string"
         ? bloco.output.accessPin
         : null;
+    const joinUrl = urlDeEntradaNaEnquete(
+      typeof bloco.output?.joinUrl === "string" ? bloco.output.joinUrl : null,
+      pin,
+    );
 
     if (!joinUrl && !pin) {
       return (

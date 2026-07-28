@@ -28,6 +28,39 @@ function asObject(value: unknown): JsonObject | null {
   return value as JsonObject;
 }
 
+/**
+ * O legado identifica caso e curso por id em base64 (`btoa`) dentro do path.
+ *
+ * Só ids numéricos passam por aqui, e base64 de dígitos ASCII nunca produz
+ * `/` nem `+` — os dois caracteres que quebrariam o casamento da rota.
+ */
+function idEmBase64(id: number): string {
+  return Buffer.from(String(id), "ascii").toString("base64");
+}
+
+/**
+ * Deep-link do player legado, no formato das rotas do `curso-player`.
+ *
+ * `nome` é o último segmento e o legado o manda vazio; `exit=false` mantém o
+ * player em modo quiosque (sem o botão de sair para o catálogo).
+ */
+function deepLinkDoPlayer(
+  cursoLegacyId: number,
+  casoLegacyId: number,
+  tipoClinico: string | null | undefined,
+): string {
+  const curso = idEmBase64(cursoLegacyId);
+  const caso = idEmBase64(casoLegacyId);
+
+  if (tipoClinico === "comunicacao") {
+    return `/curso/play/${curso}/casocomunicacao/${caso}/`;
+  }
+  if (tipoClinico === "apresentacao") {
+    return `/curso/play/${curso}/casoapresentacao/${caso}/`;
+  }
+  return `/curso/play/${curso}/caso/${caso}/?exit=false`;
+}
+
 interface ConfigCaso {
   casoLegacyId: number;
   turmaId: number;
@@ -278,16 +311,28 @@ export class CasoService {
       },
     });
 
-    // Usa o ponto de entrada SSO do próprio avp-empresas
-    // (`$urlRouterProvider.otherwise` em `core.module.js:1270-1358`): ele
-    // autentica pelo `?t=`, faz o `btoa()` dos ids internamente e já navega com
-    // `exit:false` (modo quiosque).
+    // Ponto de entrada SSO do próprio avp-empresas
+    // (`$urlRouterProvider.otherwise` em `core.module.js:1271-1385`): `?t=`
+    // autentica e grava a sessão no localStorage; o resto da query decide para
+    // onde ir.
     //
-    // Não montamos o deep-link com hash à mão: os segmentos precisariam ir em
-    // base64, que pode conter "/" e quebra o casamento da rota — foi o que fazia
-    // a aba cair em /app/cursos (o fallback do `otherwise`).
+    // Mandamos `url=` **e** `directCase`/`curso_id`. O `otherwise` prioriza
+    // `url` (`else if ($location.$$search.url)`) e nele faz
+    // `$window.location.href` — uma navegação de página inteira, com a sessão
+    // já persistida. É por isso que preferimos essa via: o ramo `directCase`
+    // faz `$state.go` na mesma carga, ainda no meio da troca de token, e era aí
+    // que o primeiro acesso do aluno caía no /app/new-dashboard (a aba padrão)
+    // em vez do caso — no segundo clique já havia sessão e funcionava.
+    //
+    // `directCase`/`curso_id` ficam como reserva: se um build do legado não
+    // tiver o ramo `url`, o comportamento antigo continua valendo.
     const query = new URLSearchParams({
       t: params.tokenAluno,
+      url: deepLinkDoPlayer(
+        cursoLegacyId,
+        cfg.casoLegacyId,
+        dados?.tipoclinico,
+      ),
       directCase: String(cfg.casoLegacyId),
       curso_id: String(cursoLegacyId),
     });

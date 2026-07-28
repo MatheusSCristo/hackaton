@@ -135,6 +135,40 @@ export async function gerarMaterial(
 }
 
 /**
+ * Anexa o `.pptx` do professor como base da geração dos slides.
+ *
+ * `Content-Type` vai como `undefined` de propósito: o cliente define
+ * `application/json` por padrão, e sem deixar o browser montar o
+ * `multipart/form-data` (com o boundary) o backend não consegue ler o arquivo.
+ */
+export async function enviarBaseDeSlides(
+  aulaId: string,
+  blocoId: string,
+  arquivo: File,
+): Promise<Bloco> {
+  const form = new FormData();
+  form.append("arquivo", arquivo);
+
+  const { data } = await hackatonApi.post<Bloco>(
+    `${base(aulaId, blocoId)}/base`,
+    form,
+    { headers: { "Content-Type": undefined } },
+  );
+  return data;
+}
+
+/** Descarta a base — a próxima geração parte só do contexto da aula. */
+export async function removerBaseDeSlides(
+  aulaId: string,
+  blocoId: string,
+): Promise<Bloco> {
+  const { data } = await hackatonApi.delete<Bloco>(
+    `${base(aulaId, blocoId)}/base`,
+  );
+  return data;
+}
+
+/**
  * Baixa o arquivo renderizado sob demanda (`responseType: "blob"`), respeitando
  * o nome que vem no `Content-Disposition`.
  */

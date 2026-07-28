@@ -17,10 +17,12 @@ import { useApresentacaoSync } from "@/hooks/useApresentacaoSync";
 import type { EnqueteProjecao } from "@/hooks/useApresentacaoSync";
 import { useBlocos } from "@/hooks/useBlocos";
 import { useSessaoAtual } from "@/hooks/useSessao";
+import { useSessaoLive } from "@/hooks/useSessaoLive";
 import type { Bloco } from "@/services/blocos";
 import type { Apresentacao, SimuladoGerado } from "@/services/materiais";
 import type { TipoBloco } from "@/services/blocos";
 import { getAccessToken } from "@/utils/accessToken";
+import { urlDeEntradaNaEnquete } from "@/utils/enquete";
 
 /**
  * Tela projetada — o que a **turma** vê.
@@ -32,7 +34,13 @@ export default function ProjecaoPage() {
   const { aulaId } = useParams<{ aulaId: string }>();
   const { estado } = useApresentacaoSync(aulaId, "projecao");
   const { data: blocos } = useBlocos(aulaId);
-  const { data: sessao } = useSessaoAtual(aulaId);
+  const { data: sessaoRest } = useSessaoAtual(aulaId);
+  // Socket, e não só o REST: a projeção precisa **sair** da tela de QR Code no
+  // instante em que o professor clica em "Iniciar aula". O `useSessaoAtual` para
+  // de refazer a consulta assim que encontra a sessão, então sozinho ele nunca
+  // veria a mudança de `aguardando` para `ativa`.
+  const live = useSessaoLive(sessaoRest?.codigo);
+  const sessao = live.estado ?? sessaoRest ?? null;
 
   const sequencia = (blocos ?? []).filter(
     (b) => momentoDoTipo(b.tipo) === "sessao",
@@ -77,6 +85,31 @@ export default function ProjecaoPage() {
     return (
       <Palco>
         <Spinner color="whiteAlpha.700" size="lg" />
+      </Palco>
+    );
+  }
+
+  /**
+   * Sala aberta, aula ainda não iniciada: esta tela **é** a entrada da turma.
+   *
+   * Era uma janela separada (`/aulas/:id/sessao/abrir`) que o professor abria à
+   * parte. Ela não tinha como existir junto do conteúdo, e o projetor ficava
+   * mostrando a tela errada na hora em que a turma precisava do código.
+   */
+  if (sessao?.status === "aguardando") {
+    return (
+      <Palco>
+        <Flex direction="column" align="center" gap="6">
+          <Heading size="2xl" color="white" textAlign="center">
+            Entre na aula
+          </Heading>
+          <EntradaComQr
+            url={`${window.location.origin}/sala/${sessao.codigo}`}
+            rotulo="Código da sala"
+            valor={sessao.codigo}
+            cor="cyan.200"
+          />
+        </Flex>
       </Palco>
     );
   }
@@ -363,7 +396,10 @@ function ProjecaoEnquete({
   codigo?: string;
 }) {
   const pin = bloco.output?.accessPin as string | undefined;
-  const joinUrl = bloco.output?.joinUrl as string | undefined;
+  const joinUrl = urlDeEntradaNaEnquete(
+    bloco.output?.joinUrl as string | undefined,
+    pin,
+  );
   const simulado = bloco.output?.perguntas as
     SimuladoGerado["questions"] | undefined;
 

@@ -2,12 +2,16 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Post,
   Query,
   Res,
+  UploadedFile,
+  UseInterceptors,
 } from "@nestjs/common";
+import { FileInterceptor } from "@nestjs/platform-express";
 import type { Response } from "express";
 import { Type } from "class-transformer";
 import {
@@ -29,6 +33,18 @@ import type { LegacyTokenInfo } from "../auth/legacy-auth.service";
 import type { BlocoDto } from "../aulas/dto/bloco.dto";
 import { MateriaisService } from "./materiais.service";
 import type { Apresentacao } from "./schemas";
+
+/** Limite generoso para um deck de aula, sem virar upload de vídeo. */
+const MAX_BASE_BYTES = 25 * 1024 * 1024;
+
+/**
+ * O que o multer entrega. Declarado à mão porque `@types/multer` não está no
+ * projeto e só estes campos são usados.
+ */
+interface ArquivoEnviado {
+  originalname: string;
+  buffer: Buffer;
+}
 
 class RespostaSimuladoItemDto {
   @Type(() => Number)
@@ -106,6 +122,53 @@ export class MateriaisController {
     @LegacyUser() user: LegacyTokenInfo | undefined,
   ): Promise<BlocoDto> {
     return this.materiais.gerar(aulaId, blocoId, requireProfessorId(user));
+  }
+
+  /**
+   * Anexa o `.pptx` do professor como base da geração dos slides.
+   *
+   * Guardamos só o texto extraído (ver `definirBaseDeSlides`), então o upload é
+   * em memória — não há arquivo para servir depois nem diretório para gerenciar.
+   */
+  @Post("base")
+  @UseInterceptors(
+    FileInterceptor("arquivo", { limits: { fileSize: MAX_BASE_BYTES } }),
+  )
+  async definirBase(
+    @Param("aulaId") aulaId: string,
+    @Param("blocoId") blocoId: string,
+    @UploadedFile() arquivo: ArquivoEnviado | undefined,
+    @LegacyUser() user: LegacyTokenInfo | undefined,
+  ): Promise<BlocoDto> {
+    if (!arquivo?.buffer?.length) {
+      throw new BadRequestException("Envie um arquivo .pptx no campo 'arquivo'.");
+    }
+    if (!/\.pptx$/i.test(arquivo.originalname)) {
+      throw new BadRequestException(
+        "Formato não suportado: use um .pptx (PowerPoint).",
+      );
+    }
+
+    return this.materiais.definirBaseDeSlides(
+      aulaId,
+      blocoId,
+      requireProfessorId(user),
+      arquivo,
+    );
+  }
+
+  /** Remove a base: a próxima geração parte só do contexto da aula. */
+  @Delete("base")
+  async removerBase(
+    @Param("aulaId") aulaId: string,
+    @Param("blocoId") blocoId: string,
+    @LegacyUser() user: LegacyTokenInfo | undefined,
+  ): Promise<BlocoDto> {
+    return this.materiais.removerBaseDeSlides(
+      aulaId,
+      blocoId,
+      requireProfessorId(user),
+    );
   }
 
   /** Renderiza o arquivo na hora, a partir da estrutura salva. */

@@ -15,6 +15,7 @@ import {
 import { MateriaisService } from "./materiais.service";
 import { PdfRendererService } from "./pdf-renderer.service";
 import { PptxRendererService } from "./pptx-renderer.service";
+import { PptxTextoService } from "./pptx-texto.service";
 import { ResumoIaService } from "./resumo-ia.service";
 import { SimuladoIaService } from "./simulado-ia.service";
 import { SlidesIaService } from "./slides-ia.service";
@@ -37,6 +38,7 @@ import { SlidesIaService } from "./slides-ia.service";
     MaterialComplementarIaService,
     ImageResolverService,
     PptxRendererService,
+    PptxTextoService,
     PdfRendererService,
   ],
 })

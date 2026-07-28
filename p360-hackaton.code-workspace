@@ -1,0 +1,31 @@
+{
+	"folders": [
+    {
+      "path": "p360-hackaton"
+    },
+    {
+      "path": "p360-hackaton-backend"
+    },
+    {
+      "path": "../avp/avp-backend"
+    },
+    {
+      "path": "../avp/avp-empresas"
+    },
+    {
+      "path": "../avp/p360-auth-front"
+    },
+    {
+      "path": "../avp/avp-frontend"
+    },
+    {
+      "path": "../p360-monolith"
+    },
+    {
+      "path": "../survey/p360-survey-frontend"
+    },
+    {
+      "path": "."
+    }
+  ]
+}

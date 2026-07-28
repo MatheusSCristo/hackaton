@@ -49,8 +49,19 @@ export interface AgregadoCaso {
 /**
  * Coleta o desempenho **depois** da execução — não é tempo real.
  *
- * Fonte primária: `caseevent`, a única tabela de log que carrega `class_id`
- * (turma), o que permite recortar exatamente a janela da sessão.
+ * Fonte: `caseevent`. O recorte é (caso, janela da sessão, matriculados na
+ * turma) — e o "matriculados na turma" vem de `turmausuario`, **não** de
+ * `caseevent.class_id`.
+ *
+ * Isso é deliberado. O legado grava `class_id = accessToken.turma_id`
+ * (`avp-backend/common/models/caso-log.js:37`), ou seja: a turma *selecionada na
+ * sessão* de quem está jogando. Quem não tem turma escolhida — o professor
+ * testando a própria aula é o caso óbvio, mas também qualquer conta que nunca
+ * passou pelo seletor — grava `NULL` e desaparecia da coleta inteira. E quem tem
+ * várias turmas pode estar com outra ativa, caindo na turma errada.
+ *
+ * `turmausuario` não tem esse problema: é o vínculo real, e é o que o nosso
+ * `garantirMatricula` mantém em dia quando o aluno abre o caso pela sala.
  */
 @Injectable()
 export class CasoColetaService {
@@ -67,11 +78,13 @@ export class CasoColetaService {
 
     const [eventos, tempos] = await Promise.all([
       this.read.query<{ usuario_id: number; evento: string }>(
-        `SELECT DISTINCT usuario_id, evento
-           FROM caseevent
-          WHERE class_id = $1
-            AND caso_id = $2
-            AND createdat BETWEEN $3 AND $4`,
+        `SELECT DISTINCT ce.usuario_id, ce.evento
+           FROM caseevent ce
+           JOIN turmausuario tu
+             ON tu.usu_id = ce.usuario_id
+            AND tu.tma_id = $1
+          WHERE ce.caso_id = $2
+            AND ce.createdat BETWEEN $3 AND $4`,
         [turmaId, casoLegacyId, inicio, fim],
       ),
       this.read.query<{ evento: string; segundos: string | null }>(
@@ -153,6 +166,7 @@ export class CasoColetaService {
   }): Promise<{ concluidos: number; iniciaram: number; alunosTotal: number }> {
     const { turmaId, casoLegacyId, inicio, fim, conectados } = params;
 
+<<<<<<< Updated upstream
     const contagem = await this.read.query<{ concluidos: string }>(
       `SELECT COUNT(DISTINCT usuario_id) FILTER (WHERE evento = ANY($5))::text
              AS concluidos
@@ -162,6 +176,27 @@ export class CasoColetaService {
           AND createdat BETWEEN $3 AND $4`,
       [turmaId, casoLegacyId, inicio, fim, EVENTOS_CONCLUSAO],
     );
+=======
+    const [alunos, contagem] = await Promise.all([
+      this.read.query<{ total: string }>(
+        `SELECT COUNT(*)::text AS total FROM turmausuario WHERE tma_id = $1`,
+        [turmaId],
+      ),
+      this.read.query<{ concluidos: string; iniciaram: string }>(
+        `SELECT
+           COUNT(DISTINCT ce.usuario_id) FILTER (WHERE ce.evento = ANY($5))::text
+             AS concluidos,
+           COUNT(DISTINCT ce.usuario_id)::text AS iniciaram
+           FROM caseevent ce
+           JOIN turmausuario tu
+             ON tu.usu_id = ce.usuario_id
+            AND tu.tma_id = $1
+          WHERE ce.caso_id = $2
+            AND ce.createdat BETWEEN $3 AND $4`,
+        [turmaId, casoLegacyId, inicio, fim, EVENTOS_CONCLUSAO],
+      ),
+    ]);
+>>>>>>> Stashed changes
 
     return {
       alunosTotal: conectados,

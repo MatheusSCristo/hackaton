@@ -45,6 +45,60 @@ export const ESTADO_INICIAL: EstadoApresentacao = {
 };
 
 const canalDe = (aulaId: string) => `p360:apresentacao:${aulaId}`;
+const chaveDe = (aulaId: string) => `p360:apresentacao:estado:${aulaId}`;
+
+/**
+ * O que sobrevive a fechar a aba.
+ *
+ * Uma aula não acontece numa sessão de navegador só: o professor troca de aba,
+ * dá F5, o notebook dorme. Voltar para a etapa 1 no meio da aula significa
+ * reliberar o primeiro bloco para a turma — então o ponto em que ele estava é
+ * estado da aula, não da tela.
+ *
+ * `enquete` (dado ao vivo, chega pelo socket) e `projetarDados` ficam de fora de
+ * propósito: retomar já projetando um resultado que o professor não reautorizou
+ * é justamente o que a separação controle/projeção existe para evitar.
+ */
+type EstadoPersistido = Pick<
+  EstadoApresentacao,
+  "passo" | "slide" | "finalizada"
+>;
+
+function naoNegativo(valor: unknown): number {
+  return Number.isInteger(valor) && (valor as number) >= 0
+    ? (valor as number)
+    : 0;
+}
+
+function ler(aulaId: string): EstadoApresentacao {
+  try {
+    const bruto = window.localStorage.getItem(chaveDe(aulaId));
+    if (!bruto) return ESTADO_INICIAL;
+
+    const salvo = JSON.parse(bruto) as Partial<EstadoPersistido>;
+    return {
+      ...ESTADO_INICIAL,
+      passo: naoNegativo(salvo.passo),
+      slide: naoNegativo(salvo.slide),
+      finalizada: salvo.finalizada === true,
+    };
+  } catch {
+    return ESTADO_INICIAL;
+  }
+}
+
+function gravar(aulaId: string, estado: EstadoApresentacao): void {
+  const persistido: EstadoPersistido = {
+    passo: estado.passo,
+    slide: estado.slide,
+    finalizada: estado.finalizada,
+  };
+  try {
+    window.localStorage.setItem(chaveDe(aulaId), JSON.stringify(persistido));
+  } catch {
+    // Aba privada / storage cheio: perder a retomada é aceitável, quebrar não.
+  }
+}
 
 /**
  * Sincroniza as duas janelas por `BroadcastChannel` — mesma origem, sem rede e
@@ -58,13 +112,27 @@ export function useApresentacaoSync(
   aulaId: string | undefined,
   papel: "controle" | "projecao",
 ) {
-  const [estado, setEstado] = useState<EstadoApresentacao>(ESTADO_INICIAL);
+  // Retoma de onde a aula parou já no primeiro render — um flash na etapa 1
+  // antes de "corrigir" apareceria no projetor.
+  const [estado, setEstado] = useState<EstadoApresentacao>(() =>
+    aulaId ? ler(aulaId) : ESTADO_INICIAL,
+  );
   const canalRef = useRef<BroadcastChannel | null>(null);
-  const estadoRef = useRef<EstadoApresentacao>(ESTADO_INICIAL);
+  const estadoRef = useRef<EstadoApresentacao>(estado);
 
   useEffect(() => {
     estadoRef.current = estado;
   }, [estado]);
+
+  // Trocar de aula na mesma tela: recarrega o ponto de retomada da nova.
+  const aulaCarregada = useRef(aulaId);
+  useEffect(() => {
+    if (!aulaId || aulaCarregada.current === aulaId) return;
+    aulaCarregada.current = aulaId;
+    const retomado = ler(aulaId);
+    estadoRef.current = retomado;
+    setEstado(retomado);
+  }, [aulaId]);
 
   useEffect(() => {
     if (!aulaId || typeof BroadcastChannel === "undefined") return;
@@ -104,10 +172,11 @@ export function useApresentacaoSync(
         const novo = { ...atual, ...patch };
         estadoRef.current = novo;
         canalRef.current?.postMessage({ tipo: "estado", estado: novo });
+        if (aulaId) gravar(aulaId, novo);
         return novo;
       });
     },
-    [papel],
+    [papel, aulaId],
   );
 
   return { estado, atualizar };

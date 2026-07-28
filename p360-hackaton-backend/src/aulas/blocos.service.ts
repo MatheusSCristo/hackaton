@@ -214,6 +214,28 @@ export class BlocosService {
     return toBlocoDto(bloco);
   }
 
+  /**
+   * Grava (merge) no `config` do bloco.
+   *
+   * Diferente de `update`, que substitui o `config` inteiro pelo que o cliente
+   * mandou: aqui o servidor altera **uma** chave sem precisar que o cliente
+   * conheça (e reenvie) o resto — o caso do material de base dos slides, que é
+   * grande e não passa pelo formulário de personalização.
+   */
+  async mergeConfig(blocoId: string, patch: JsonObject): Promise<BlocoDto> {
+    const atual = await this.prisma.aulaBloco.findUnique({
+      where: { id: blocoId },
+      select: { config: true },
+    });
+    const config = { ...(asObject(atual?.config ?? null) ?? {}), ...patch };
+
+    const bloco = await this.prisma.aulaBloco.update({
+      where: { id: blocoId },
+      data: { config: config as Prisma.InputJsonValue },
+    });
+    return toBlocoDto(bloco);
+  }
+
   private async assertBloco(
     aulaId: string,
     blocoId: string,

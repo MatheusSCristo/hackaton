@@ -99,10 +99,11 @@ export class SlidesIaService {
   ) {}
 
   async gerar(ctx: ContextoAula): Promise<Apresentacao> {
-    const total = Math.min(
-      MAX_SLIDES,
-      Math.max(MIN_SLIDES, ctx.nSlides ?? N_SLIDES_PADRAO),
-    );
+    // Com uma base do professor, o tamanho dela é o palpite melhor que o padrão
+    // — mas a escolha explícita no "Personalizar" continua ganhando.
+    const alvo =
+      ctx.nSlides ?? ctx.slideBase?.nSlides ?? N_SLIDES_PADRAO;
+    const total = Math.min(MAX_SLIDES, Math.max(MIN_SLIDES, alvo));
 
     const userPrompt = [
       this.contexto.descrever(ctx),

@@ -26,6 +26,13 @@ export interface ContextoAula {
   objetivos: string | null;
   /** Pontos fracos vindos de blocos de caso ANTERIORES a este. */
   fraquezas: string[];
+  /**
+   * Slide pessoal do professor usado como base (texto extraído do `.pptx`).
+   *
+   * Quando existe, é a fonte mais forte do contexto: o professor já decidiu o
+   * roteiro dele e a IA está ali para completar/adaptar, não para substituir.
+   */
+  slideBase: { nome: string; texto: string; nSlides: number | null } | null;
   /** Personalizações opcionais do bloco. */
   instrucoesExtras: string | null;
   nSlides: number | null;
@@ -44,6 +51,19 @@ function asObject(value: unknown): Record<string, unknown> | null {
 
 function texto(valor: unknown): string | null {
   return typeof valor === "string" && valor.trim() ? valor.trim() : null;
+}
+
+function slideBase(
+  valor: unknown,
+): { nome: string; texto: string; nSlides: number | null } | null {
+  const obj = asObject(valor);
+  const conteudo = texto(obj?.texto);
+  if (!conteudo) return null;
+  return {
+    nome: texto(obj?.nome) ?? "apresentação do professor",
+    texto: conteudo,
+    nSlides: inteiro(obj?.nSlides),
+  };
 }
 
 function inteiro(valor: unknown): number | null {
@@ -83,6 +103,7 @@ export class ContextoAulaService {
       formato: texto(aula.formato),
       objetivos: texto(aula.objetivos),
       fraquezas: await this.fraquezasAnteriores(aula.id, bloco.ordem),
+      slideBase: slideBase(config.slideBase),
       instrucoesExtras: texto(config.instrucoesExtras),
       nSlides: inteiro(config.nSlides),
       nQuestoes: inteiro(config.nQuestoes),
@@ -115,6 +136,19 @@ export class ContextoAulaService {
         "",
         "A turma demonstrou dificuldade nos pontos abaixo — priorize-os:",
         ...ctx.fraquezas.map((f) => `- ${f}`),
+      );
+    }
+
+    if (ctx.slideBase) {
+      linhas.push(
+        "",
+        `O professor enviou a apresentação dele ("${ctx.slideBase.nome}") como BASE.`,
+        "Siga a sequência, a linguagem e o recorte dela; complete lacunas e melhore",
+        "a redação, mas não troque o roteiro por outro nem descarte assuntos que ela cobre.",
+        "",
+        "--- INÍCIO DO MATERIAL DE BASE ---",
+        ctx.slideBase.texto,
+        "--- FIM DO MATERIAL DE BASE ---",
       );
     }
 

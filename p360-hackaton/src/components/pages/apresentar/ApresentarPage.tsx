@@ -19,11 +19,14 @@ import {
   EyeOff,
   Flag,
   LogIn,
+  PlayCircle,
   Radio,
   RefreshCw,
   Square,
   Users,
+  X,
 } from "lucide-react";
+import QRCode from "react-qr-code";
 
 import { BLOCO_META, momentoDoTipo } from "../aula/blocoMeta";
 import { PresentationViewer } from "../aula/presentation";
@@ -36,6 +39,8 @@ import { useAula } from "@/hooks/useAulas";
 import { useBlocos } from "@/hooks/useBlocos";
 import {
   useAtualizarSlideSessao,
+  useConfirmarInicioSessao,
+  useCriarSessao,
   useEncerrarSessao,
   useLiberarBloco,
   useSessaoAtual,
@@ -84,6 +89,8 @@ export default function ApresentarPage() {
   const liberar = useLiberarBloco(aulaId);
   const liberarCaso = useLiberarCaso(aulaId);
   const encerrarSessao = useEncerrarSessao(aulaId);
+  const criarSessao = useCriarSessao(aulaId);
+  const confirmarSessao = useConfirmarInicioSessao(aulaId);
 
   const { estado, atualizar } = useApresentacaoSync(aulaId, "controle");
 
@@ -93,12 +100,14 @@ export default function ApresentarPage() {
   const bloco = sequencia[estado.passo];
   const ultimo = estado.passo >= sequencia.length - 1;
 
-  // Apresentar é só a apresentação — não cria sessão nenhuma. Sem sessão
-  // (ou com ela ainda "aguardando"), o professor navega pelos passos à
-  // vontade só pra si mesmo/quem estiver na janela de projeção; a liberação
-  // pra turma real (`liberarEtapa` abaixo) simplesmente não tem o que fazer
-  // até existir uma sessão, e só chega de fato aos alunos quando ela estiver
-  // "ativa" (confirmada na tela de QR Code).
+  /**
+   * Sala aberta e esperando a turma entrar.
+   *
+   * Enquanto está assim, a projeção mostra o QR Code e a apresentação não
+   * começou: liberar a primeira etapa agora projetaria conteúdo em cima do
+   * código de entrada, com metade da turma ainda entrando.
+   */
+  const aguardandoTurma = sessao?.status === "aguardando";
 
   /** Libera o bloco da etapa para a turma (caso tem rota própria). */
   const liberarEtapa = (alvo: Bloco | undefined) => {
@@ -128,9 +137,23 @@ export default function ApresentarPage() {
   // não só localmente — idempotente, então não tem problema repetir a
   // mesma chamada que `irPara` já fez.
   useEffect(() => {
+    if (aguardandoTurma) return;
     liberarEtapa(bloco);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bloco?.id, sessao?.sessaoId]);
+  }, [bloco?.id, sessao?.sessaoId, aguardandoTurma]);
+
+  /**
+   * "Iniciar aula": confirma a sessão e libera a primeira etapa.
+   *
+   * Eram dois lugares diferentes (a janela de QR Code criava a sessão, o
+   * cockpit confirmava) para uma decisão só — "a turma entrou, vamos começar".
+   */
+  const iniciarAula = () => {
+    if (!sessao) return;
+    confirmarSessao.mutate(sessao.sessaoId, {
+      onSuccess: () => liberarEtapa(sequencia[estado.passo]),
+    });
+  };
 
   // Sem token não há o que apresentar: toda chamada daria 401. Melhor explicar
   // do que deixar o console cuspindo Unauthorized.
@@ -226,6 +249,28 @@ export default function ApresentarPage() {
 
       <Box px={{ base: 4, md: 8 }} py="6">
         <Box maxW="1100px" mx="auto">
+          {/* Sessão: abrir a sala e esperar a turma, aqui mesmo. */}
+          {!estado.finalizada && (!sessao || aguardandoTurma) && (
+            <ControleSessao
+              sessao={aguardandoTurma ? sessao : null}
+              codigo={sessao?.codigo}
+              conectados={live.conectados}
+              abrindo={criarSessao.isPending}
+              iniciando={confirmarSessao.isPending}
+              cancelando={encerrarSessao.isPending}
+              onAbrir={() => criarSessao.mutate()}
+              onIniciar={iniciarAula}
+              onCancelar={() =>
+                sessao && encerrarSessao.mutate(sessao.sessaoId)
+              }
+            />
+          )}
+
+          {/* Enquanto a turma entra, a projeção está no QR Code e a única
+              decisão do professor é "começar" — trilha, conteúdo e navegação
+              sairiam de cena mesmo, e ficariam só convidando a clicar. */}
+          {aguardandoTurma ? null : (
+            <>
           {/* Trilha de etapas */}
           <HStack gap="2" wrap="wrap" mb="5">
             {sequencia.map((b, i) => {
@@ -315,8 +360,136 @@ export default function ApresentarPage() {
               </CustomButton>
             )}
           </Flex>
+            </>
+          )}
         </Box>
       </Box>
+    </Box>
+  );
+}
+
+/**
+ * Abrir a sala e colocar a aula no ar — as duas coisas aqui, não em telas
+ * separadas.
+ *
+ * Antes: o cockpit abria um pop-up que criava a sessão e mostrava o QR Code, e a
+ * confirmação ficava de volta no cockpit. Três superfícies para uma sequência
+ * que é sempre a mesma — abrir, esperar a turma, começar.
+ *
+ * O QR grande vive na **projeção**; aqui ele aparece pequeno só para o professor
+ * conferir que a tela certa está no projetor, junto do que só ele deve ver: a
+ * contagem de quem já entrou.
+ */
+function ControleSessao({
+  sessao,
+  codigo,
+  conectados,
+  abrindo,
+  iniciando,
+  cancelando,
+  onAbrir,
+  onIniciar,
+  onCancelar,
+}: {
+  sessao: EstadoSessao | null;
+  codigo: string | undefined;
+  conectados: number | null;
+  abrindo: boolean;
+  iniciando: boolean;
+  cancelando: boolean;
+  onAbrir: () => void;
+  onIniciar: () => void;
+  onCancelar: () => void;
+}) {
+  if (!sessao) {
+    return (
+      <Box
+        bg="white"
+        borderWidth="1px"
+        borderColor="gray.200"
+        borderRadius="xl"
+        p={{ base: 4, md: 5 }}
+        mb="5"
+      >
+        <Heading size="sm" color="gray.800" mb="1">
+          Sessão ao vivo
+        </Heading>
+        <Text fontSize="sm" color="gray.500" mb="4">
+          Abra a sessão para o QR Code de entrada aparecer na projeção.
+        </Text>
+        <CustomButton
+          variant="solid"
+          icon={Radio}
+          size="sm"
+          isLoading={abrindo}
+          onClick={onAbrir}
+        >
+          Abrir sessão
+        </CustomButton>
+      </Box>
+    );
+  }
+
+  const url = codigo ? `${window.location.origin}/sala/${codigo}` : "";
+  const naSala = conectados ?? sessao.participantes;
+
+  return (
+    <Box
+      bg="white"
+      borderWidth="1px"
+      borderColor="orange.300"
+      borderRadius="xl"
+      p={{ base: 4, md: 5 }}
+      mb="5"
+    >
+      <Flex gap={{ base: 4, md: 6 }} wrap="wrap" align="flex-start">
+        {url && (
+          <Box borderWidth="1px" borderColor="gray.200" borderRadius="lg" p="2">
+            <QRCode value={url} size={104} level="M" />
+          </Box>
+        )}
+
+        <Box flex="1" minW="240px">
+          <Heading size="sm" color="gray.800" mb="1">
+            Esperando a turma entrar
+          </Heading>
+          <Text fontSize="sm" color="gray.500" mb="3">
+            O QR Code está na projeção. Código{" "}
+            <Text as="span" fontFamily="mono" fontWeight="bold" color="gray.800">
+              {codigo}
+            </Text>
+            .
+          </Text>
+
+          <Flex align="center" gap="2" color="gray.600" mb="4">
+            <Users size={14} />
+            <Text fontSize="sm" fontWeight="semibold">
+              {naSala} {naSala === 1 ? "aluno na sala" : "alunos na sala"}
+            </Text>
+          </Flex>
+
+          <HStack gap="2" wrap="wrap">
+            <CustomButton
+              variant="solid"
+              icon={PlayCircle}
+              size="sm"
+              isLoading={iniciando}
+              onClick={onIniciar}
+            >
+              Iniciar aula
+            </CustomButton>
+            <CustomButton
+              variant="outline"
+              icon={X}
+              size="sm"
+              isLoading={cancelando}
+              onClick={onCancelar}
+            >
+              Cancelar sessão
+            </CustomButton>
+          </HStack>
+        </Box>
+      </Flex>
     </Box>
   );
 }
@@ -633,31 +806,24 @@ function ControleEnquete({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bloco.id, publicada, pin, perguntas.length]);
 
-  // Assim que somos reconhecidos como speaker, a questão sobe sem clique.
-  // Mas antes disso: toda vez que esta tela é aberta (nova apresentação), a
-  // enquete deve recomeçar da primeira questão — não continuar de onde uma
-  // apresentação anterior parou (`questaoAtual` persiste entre sessões).
+  // Assim que somos reconhecidos como speaker, a questão sobe sem clique —
+  // a que estava no ar, não a primeira. Reabrir a aba (F5, notebook que dormiu)
+  // não é começar de novo: voltar para a questão 1 no meio da enquete jogaria a
+  // turma inteira de volta a uma pergunta já respondida.
   const noAr = useRef<string | null>(null);
-  const reabriuNestaSessao = useRef(false);
   useEffect(() => {
     if (!pin || !live.ehSpeaker) return;
-
-    if (!reabriuNestaSessao.current) {
-      reabriuNestaSessao.current = true;
-      if (indice !== 0 && pollIds[0]) {
-        // Já marca como "questão 0 no ar" pra não subir de novo (redundante)
-        // assim que o índice persistido atualizar no próximo render.
-        noAr.current = `${pin}:0`;
-        live.trocarQuestao(pollIds[0]);
-        persistirQuestaoAtual.mutate({ blocoId: bloco.id, indice: 0 });
-        return;
-      }
-    }
 
     const chave = `${pin}:${indice}`;
     if (live.pollAtivo || noAr.current === chave) return;
     noAr.current = chave;
-    live.iniciar();
+
+    // `poll:start` sobe a questão que a SESSÃO tem — o que basta na primeira.
+    // Para retomar no meio, dizemos explicitamente qual questão queremos, em
+    // vez de confiar que a sessão do poll360 guardou a última troca.
+    const alvo = pollIds[indice];
+    if (indice > 0 && alvo) live.trocarQuestao(alvo);
+    else live.iniciar();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pin, indice, live.ehSpeaker, live.pollAtivo]);
 

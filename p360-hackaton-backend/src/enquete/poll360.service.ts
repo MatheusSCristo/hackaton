@@ -10,6 +10,8 @@ import axios, { AxiosError, type AxiosInstance } from "axios";
 import type { PerguntaEnquete } from "./enquete-ia.service";
 
 const API_PREFIX = "/api/v1/poll360";
+/** Rótulo do campo que o aluno preenche antes de votar. */
+const CAMPO_NOME = "Nome";
 const PUBLIC_API_PREFIX = "/api/v1/public/poll360";
 
 /** Nome do campo customizado usado para pedir o nome do aluno (não há campo nativo no poll360). */
@@ -100,7 +102,17 @@ export class Poll360Service {
         requireEmail: true,
         requireCrm: false,
         requireProfession: false,
-        customFieldsSchema: [{ field: NOME_CAMPO_CUSTOM, status: true }],
+        // Um campo personalizado obrigatório de nome, e só ele.
+        //
+        // Dois motivos. O professor precisa saber QUEM respondeu — sem nenhum
+        // campo o respondente do poll360 é anônimo e a enquete não diz nada
+        // sobre a turma. E, do lado do aluno, é o que faz o survey mostrar a
+        // tela de cadastro: sem campo nenhum ela é pulada automaticamente
+        // (`hasFields` no `attendeeProfile`), e ele entra sem se identificar.
+        //
+        // CRM/e-mail/profissão ficam de fora de propósito: em sala de aula cada
+        // campo extra é tempo de projetor parado.
+        customFieldsSchema: [{ field: CAMPO_NOME, status: true }],
       },
     );
 

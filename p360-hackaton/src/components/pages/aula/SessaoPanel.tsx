@@ -1,4 +1,3 @@
-import { useRef } from "react";
 import {
   Badge,
   Box,
@@ -9,13 +8,12 @@ import {
   Text,
   CustomButton,
 } from "@cursosactive/p360-new-ui";
-import { PlayCircle, Radio, Share2, Square, Users, X } from "lucide-react";
+import { Share2, Square, Users, X } from "lucide-react";
 
 import { BLOCO_META } from "./blocoMeta";
-import { useConfirmarInicioSessao, useEncerrarSessao } from "@/hooks/useSessao";
+import { useEncerrarSessao } from "@/hooks/useSessao";
 import type { EstadoSessao } from "@/services/sessao";
 import type { TipoBloco } from "@/services/blocos";
-import { getAccessToken } from "@/utils/accessToken";
 
 interface SessaoPanelProps {
   aulaId: string;
@@ -28,8 +26,12 @@ interface SessaoPanelProps {
 }
 
 /**
- * Painel de controle da sessão ao vivo. O aluno entra por um link único desta
- * casca e acompanha tudo por lá — sem precisar navegar em vários lugares.
+ * Painel de **acompanhamento** da sessão ao vivo, no cockpit.
+ *
+ * Abrir a sessão e colocar a aula no ar não é daqui: isso mora no Apresentar
+ * (`ControleSessao`), junto do QR Code que vai para a projeção. Aqui o professor
+ * vê o estado, o código e o link — nada que dependa de estar com a turma na
+ * frente do projetor.
  *
  * Apresentacional quanto ao estado: quem consulta é o cockpit, para que os
  * botões de cada bloco compartilhem a mesma sessão.
@@ -43,39 +45,6 @@ export default function SessaoPanel({
   erroLive,
 }: SessaoPanelProps) {
   const encerrar = useEncerrarSessao(aulaId);
-  const confirmar = useConfirmarInicioSessao(aulaId);
-
-  // Referência da janela de QR Code — permite fechá-la na hora, direto, sem
-  // depender só do socket (que a própria janela também escuta e usa pra se
-  // fechar sozinha; isto aqui é redundância de propósito, mais confiável).
-  const janelaQrRef = useRef<Window | null>(null);
-
-  /**
-   * Abre a tela de QR Code numa janela própria — é ela quem cria (ou
-   * reaproveita) a sessão, nunca este clique diretamente. Essa janela é só
-   * pra projetar (QR Code + link, nada de controle/contagem — isso é só
-   * daqui, que é privado do professor).
-   */
-  const abrirTelaDeSessao = () => {
-    const token = getAccessToken();
-    const url = token
-      ? `/aulas/${aulaId}/sessao/abrir?accessToken=${encodeURIComponent(token)}`
-      : `/aulas/${aulaId}/sessao/abrir`;
-    // Sem `noopener` aqui de propósito: precisamos da referência pra fechar a
-    // janela depois (confirmar/cancelar). É a mesma origem/rota nossa, então
-    // não há o risco de reverse tabnabbing que `noopener` normalmente evita.
-    janelaQrRef.current = window.open(
-      url,
-      "p360-sessao-qr",
-      "width=900,height=700",
-    );
-  };
-
-  const fecharJanelaQr = () => {
-    if (janelaQrRef.current && !janelaQrRef.current.closed) {
-      janelaQrRef.current.close();
-    }
-  };
 
   if (isLoading) {
     return (
@@ -97,19 +66,16 @@ export default function SessaoPanel({
         <Heading size="sm" color="gray.800" mb="1">
           Sessão ao vivo
         </Heading>
-        <Text fontSize="sm" color="gray.500" mb="4">
-          Abra a sessão para gerar o QR Code/link de entrada da turma.
+        <Text fontSize="sm" color="gray.500">
+          Clique em <b>Apresentar</b> e abra a sessão lá — o QR Code de entrada
+          aparece direto na projeção.
         </Text>
-        <CustomButton variant="solid" icon={Radio} size="sm" onClick={abrirTelaDeSessao}>
-          Abrir sessão
-        </CustomButton>
       </Box>
     );
   }
 
-  // Sala aberta, mas o professor ainda não confirmou: só ele vê quantos já
-  // entraram e decide se coloca a aula no ar ou desiste (a projeção — tela
-  // de QR Code — não mostra nada disso, de propósito).
+  // Sala aberta, aula ainda não iniciada. Quem começa é o Apresentar, com o QR
+  // Code no projetor; aqui é só sinalização para quem voltou ao cockpit.
   if (estado.status === "aguardando") {
     return (
       <Box
@@ -123,7 +89,8 @@ export default function SessaoPanel({
           Sessão ao vivo
         </Heading>
         <Text fontSize="sm" color="gray.500" mb="3">
-          A sala está aberta — a turma já pode entrar pelo QR Code projetado.
+          A sala está aberta e a turma já pode entrar. Volte para o{" "}
+          <b>Apresentar</b> para iniciar a aula.
         </Text>
         <Flex align="center" gap="2" color="gray.600" mb="4">
           <Users size={14} />
@@ -134,30 +101,15 @@ export default function SessaoPanel({
               : "usuários conectados"}
           </Text>
         </Flex>
-        <HStack gap="2">
-          <CustomButton
-            variant="solid"
-            icon={PlayCircle}
-            size="sm"
-            isLoading={confirmar.isPending}
-            onClick={() =>
-              confirmar.mutate(estado.sessaoId, { onSuccess: fecharJanelaQr })
-            }
-          >
-            Confirmar início da sessão
-          </CustomButton>
-          <CustomButton
-            variant="outline"
-            icon={X}
-            size="sm"
-            isLoading={encerrar.isPending}
-            onClick={() =>
-              encerrar.mutate(estado.sessaoId, { onSuccess: fecharJanelaQr })
-            }
-          >
-            Cancelar
-          </CustomButton>
-        </HStack>
+        <CustomButton
+          variant="outline"
+          icon={X}
+          size="sm"
+          isLoading={encerrar.isPending}
+          onClick={() => encerrar.mutate(estado.sessaoId)}
+        >
+          Cancelar sessão
+        </CustomButton>
       </Box>
     );
   }

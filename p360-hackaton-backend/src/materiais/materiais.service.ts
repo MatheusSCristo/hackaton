@@ -18,6 +18,7 @@ import { ImageResolverService } from "./image-resolver.service";
 import { MaterialComplementarIaService } from "./material-complementar-ia.service";
 import { PdfRendererService } from "./pdf-renderer.service";
 import { PptxRendererService } from "./pptx-renderer.service";
+import { PptxTextoService } from "./pptx-texto.service";
 import { ResumoIaService } from "./resumo-ia.service";
 import { SimuladoIaService } from "./simulado-ia.service";
 import { SlidesIaService } from "./slides-ia.service";
@@ -112,6 +113,7 @@ export class MateriaisService {
     private readonly materialComplementarIa: MaterialComplementarIaService,
     private readonly imageResolver: ImageResolverService,
     private readonly pptx: PptxRendererService,
+    private readonly pptxTexto: PptxTextoService,
     private readonly pdf: PdfRendererService,
     private readonly ia: IaJsonService,
     private readonly sessao: SessaoService,
@@ -469,6 +471,48 @@ export class MateriaisService {
         submittedAt: t.submittedAt.toISOString(),
       })),
     };
+  }
+
+  /**
+   * Guarda o `.pptx` do professor como **base** da geração dos slides.
+   *
+   * Guardamos só o texto extraído, não o binário: é o que a IA consome, cabe no
+   * `config` e não transforma a tabela de blocos em repositório de arquivos.
+   * O professor mantém o arquivo dele — aqui ele não é editado nem devolvido.
+   */
+  async definirBaseDeSlides(
+    aulaId: string,
+    blocoId: string,
+    professorId: string,
+    arquivo: { originalname: string; buffer: Buffer },
+  ): Promise<BlocoDto> {
+    const { bloco } = await this.carregar(aulaId, blocoId, professorId);
+    if (bloco.tipo !== "slides") {
+      throw new BadRequestException(
+        "Material de base só se aplica ao bloco de slides.",
+      );
+    }
+
+    const { slides, texto } = await this.pptxTexto.extrair(arquivo.buffer);
+
+    return this.blocos.mergeConfig(blocoId, {
+      slideBase: {
+        nome: arquivo.originalname,
+        nSlides: slides.length,
+        texto,
+        enviadoEm: new Date().toISOString(),
+      },
+    });
+  }
+
+  /** Descarta a base: a próxima geração volta a partir só do contexto da aula. */
+  async removerBaseDeSlides(
+    aulaId: string,
+    blocoId: string,
+    professorId: string,
+  ): Promise<BlocoDto> {
+    await this.carregar(aulaId, blocoId, professorId);
+    return this.blocos.mergeConfig(blocoId, { slideBase: null });
   }
 
   get iaDisponivel(): boolean {

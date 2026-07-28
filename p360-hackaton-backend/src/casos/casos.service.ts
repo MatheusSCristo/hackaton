@@ -22,6 +22,14 @@ interface CountRow {
 
 const DEFAULT_PAGE_SIZE = 10;
 
+/**
+ * Thumbnail do caso. O acervo usa duas colunas para a mesma coisa e boa parte
+ * dos registros traz **string vazia** em vez de `NULL` — daí o `nullif`, sem o
+ * qual `''` contaria como "tem imagem".
+ */
+const IMAGEM_SQL =
+  "nullif(btrim(coalesce(c.catalogo_imagem, c.catalogo_img)), '')";
+
 @Injectable()
 export class CasosService {
   constructor(private readonly legacyDb: LegacyDbService) {}
@@ -85,12 +93,17 @@ export class CasosService {
       ` e.descricao AS area,` +
       ` t.nome AS tema,` +
       ` c.catalogo_tags AS tags,` +
-      ` coalesce(c.catalogo_imagem, c.catalogo_img) AS imagem` +
+      ` ${IMAGEM_SQL} AS imagem` +
       ` FROM caso c` +
       ` LEFT JOIN especialidade e ON e.id = c.esp_id` +
       ` LEFT JOIN tema t ON t.id = c.tem_id` +
       ` WHERE ${where}` +
-      ` ORDER BY c.catalogo_data_publicacao DESC NULLS LAST, c.id DESC` +
+      // Com thumbnail primeiro: o professor escolhe o caso pelo cartão, e um
+      // cartão sem imagem é o que ele pula. `false` ordena antes de `true`, então
+      // "não tem imagem" cai para o fim. Dentro de cada grupo, a ordem de sempre
+      // (publicação mais recente).
+      ` ORDER BY (${IMAGEM_SQL} IS NULL),` +
+      ` c.catalogo_data_publicacao DESC NULLS LAST, c.id DESC` +
       ` LIMIT ${limitParam} OFFSET ${offsetParam}`;
 
     const rows = await this.legacyDb.query<CasoRow>(sql, pageParams);
@@ -123,7 +136,7 @@ export class CasosService {
         id: number;
         imagem: string | null;
       }>(
-        `SELECT c.id, coalesce(c.catalogo_imagem, c.catalogo_img) AS imagem
+        `SELECT c.id, ${IMAGEM_SQL} AS imagem
          FROM caso c
          WHERE c.id = ANY($1::int[])`,
         [ids],
