@@ -82,7 +82,8 @@ export default function ApresentarPage() {
 
   const { data: aula } = useAula(aulaId);
   const { data: blocos, isLoading } = useBlocos(aulaId);
-  const { data: sessaoRest } = useSessaoAtual(aulaId);
+  const { data: sessaoRest, isFetched: sessaoConsultada } =
+    useSessaoAtual(aulaId);
   const live = useSessaoLive(sessaoRest?.codigo);
   const sessao = live.estado ?? sessaoRest ?? null;
 
@@ -108,6 +109,20 @@ export default function ApresentarPage() {
    * código de entrada, com metade da turma ainda entrando.
    */
   const aguardandoTurma = sessao?.status === "aguardando";
+
+  // Abrir a sessão faz parte de "Apresentar", não é um passo à parte: ao entrar
+  // nesta tela sem sessão, cria uma sozinha. A projeção reage e mostra o QR Code
+  // na hora (ver ProjecaoPage). Uma vez só — `sessaoConsultada` garante que só
+  // dispara depois de confirmar que realmente NÃO existe sessão (senão criaria
+  // uma segunda em cima de uma sala já aberta).
+  const criouRef = useRef(false);
+  useEffect(() => {
+    if (criouRef.current) return;
+    if (!sessaoConsultada || sessaoRest || criarSessao.isPending) return;
+    criouRef.current = true;
+    criarSessao.mutate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessaoConsultada, sessaoRest]);
 
   /** Libera o bloco da etapa para a turma (caso tem rota própria). */
   const liberarEtapa = (alvo: Bloco | undefined) => {
@@ -401,6 +416,10 @@ function ControleSessao({
   onIniciar: () => void;
   onCancelar: () => void;
 }) {
+  // Sem sessão significa que a criação automática ainda está a caminho (ela
+  // dispara ao entrar no Apresentar). Não há botão "Abrir" aqui de propósito —
+  // abrir é parte de Apresentar. `onAbrir` fica como rede de segurança para o
+  // caso raro de a criação automática ter falhado.
   if (!sessao) {
     return (
       <Box
@@ -414,18 +433,26 @@ function ControleSessao({
         <Heading size="sm" color="gray.800" mb="1">
           Sessão ao vivo
         </Heading>
-        <Text fontSize="sm" color="gray.500" mb="4">
-          Abra a sessão para o QR Code de entrada aparecer na projeção.
-        </Text>
-        <CustomButton
-          variant="solid"
-          icon={Radio}
-          size="sm"
-          isLoading={abrindo}
-          onClick={onAbrir}
-        >
-          Abrir sessão
-        </CustomButton>
+        {abrindo ? (
+          <Flex align="center" gap="2" color="gray.500">
+            <Spinner size="sm" color="blue.500" />
+            <Text fontSize="sm">Abrindo a sessão e gerando o QR Code…</Text>
+          </Flex>
+        ) : (
+          <>
+            <Text fontSize="sm" color="gray.500" mb="4">
+              A sessão não abriu automaticamente. Tente de novo.
+            </Text>
+            <CustomButton
+              variant="solid"
+              icon={Radio}
+              size="sm"
+              onClick={onAbrir}
+            >
+              Abrir sessão
+            </CustomButton>
+          </>
+        )}
       </Box>
     );
   }

@@ -166,37 +166,20 @@ export class CasoColetaService {
   }): Promise<{ concluidos: number; iniciaram: number; alunosTotal: number }> {
     const { turmaId, casoLegacyId, inicio, fim, conectados } = params;
 
-<<<<<<< Updated upstream
+    // Conclusões pelos matriculados na turma (`turmausuario`), não por
+    // `caseevent.class_id` — o legado grava a turma da sessão de quem jogou,
+    // que vem NULL para quem não escolheu turma (ver o cabeçalho da classe).
     const contagem = await this.read.query<{ concluidos: string }>(
-      `SELECT COUNT(DISTINCT usuario_id) FILTER (WHERE evento = ANY($5))::text
+      `SELECT COUNT(DISTINCT ce.usuario_id) FILTER (WHERE ce.evento = ANY($5))::text
              AS concluidos
-         FROM caseevent
-        WHERE class_id = $1
-          AND caso_id = $2
-          AND createdat BETWEEN $3 AND $4`,
+         FROM caseevent ce
+         JOIN turmausuario tu
+           ON tu.usu_id = ce.usuario_id
+          AND tu.tma_id = $1
+        WHERE ce.caso_id = $2
+          AND ce.createdat BETWEEN $3 AND $4`,
       [turmaId, casoLegacyId, inicio, fim, EVENTOS_CONCLUSAO],
     );
-=======
-    const [alunos, contagem] = await Promise.all([
-      this.read.query<{ total: string }>(
-        `SELECT COUNT(*)::text AS total FROM turmausuario WHERE tma_id = $1`,
-        [turmaId],
-      ),
-      this.read.query<{ concluidos: string; iniciaram: string }>(
-        `SELECT
-           COUNT(DISTINCT ce.usuario_id) FILTER (WHERE ce.evento = ANY($5))::text
-             AS concluidos,
-           COUNT(DISTINCT ce.usuario_id)::text AS iniciaram
-           FROM caseevent ce
-           JOIN turmausuario tu
-             ON tu.usu_id = ce.usuario_id
-            AND tu.tma_id = $1
-          WHERE ce.caso_id = $2
-            AND ce.createdat BETWEEN $3 AND $4`,
-        [turmaId, casoLegacyId, inicio, fim, EVENTOS_CONCLUSAO],
-      ),
-    ]);
->>>>>>> Stashed changes
 
     return {
       alunosTotal: conectados,
