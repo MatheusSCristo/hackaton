@@ -11,7 +11,10 @@ import type { BlocoDto } from "../aulas/dto/bloco.dto";
 import { EnqueteIaService } from "./enquete-ia.service";
 import type { PerguntaEnquete } from "./enquete-ia.service";
 import { Poll360Service } from "./poll360.service";
-import type { GerarEnqueteDto } from "./dto/enquete.dto";
+import type {
+  GerarEnqueteDto,
+  RegistrarResultadoEnqueteDto,
+} from "./dto/enquete.dto";
 
 type JsonObject = Record<string, unknown>;
 
@@ -202,6 +205,49 @@ export class EnqueteService {
     }
 
     return this.blocos.mergeOutput(blocoId, { questaoAtual: indice });
+  }
+
+  /**
+   * Registra o resultado agregado de UMA questão (chamado quando o professor
+   * encerra a votação, `poll:ended`). O poll360 não expõe voto individual
+   * pra consulta depois — isso é o que sobra pra métrica de "essa pergunta a
+   * turma erra muito". Idempotente por `(blocoId, questaoIndex)`: reabrir a
+   * mesma questão e encerrar de novo só atualiza o registro.
+   */
+  async registrarResultado(
+    aulaId: string,
+    blocoId: string,
+    professorId: string,
+    dto: RegistrarResultadoEnqueteDto,
+  ): Promise<void> {
+    await this.blocos.getBloco(aulaId, blocoId, professorId);
+
+    const totalVotos = dto.opcoes.reduce((soma, o) => soma + o.votos, 0);
+    const votosCorretos = dto.opcoes
+      .filter((o) => o.correta)
+      .reduce((soma, o) => soma + o.votos, 0);
+    const pctAcerto =
+      totalVotos > 0 ? Math.round((100 * votosCorretos) / totalVotos) : 0;
+
+    const opcoes = dto.opcoes.map((o) => ({
+      texto: o.texto,
+      correta: o.correta,
+      votos: o.votos,
+      pct: totalVotos > 0 ? Math.round((100 * o.votos) / totalVotos) : 0,
+    }));
+
+    await this.prisma.enqueteResultado.upsert({
+      where: { blocoId_questaoIndex: { blocoId, questaoIndex: dto.questaoIndex } },
+      create: {
+        blocoId,
+        questaoIndex: dto.questaoIndex,
+        enunciado: dto.enunciado,
+        opcoes,
+        totalVotos,
+        pctAcerto,
+      },
+      update: { enunciado: dto.enunciado, opcoes, totalVotos, pctAcerto },
+    });
   }
 
   /**

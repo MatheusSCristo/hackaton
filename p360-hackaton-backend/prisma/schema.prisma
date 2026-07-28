@@ -108,6 +108,34 @@ model SimuladoTentativa {
   @@schema("plano_aula")
 }
 
+/// Resultado agregado de UMA questão de enquete, registrado quando o
+/// professor encerra a votação (`poll:ended`).
+///
+/// O poll360 é dono do voto individual (não exposto pra consulta depois —
+/// vive só no banco dele e no Redis, efêmero); aqui guardamos só o
+/// agregado por opção, o suficiente pra métricas de "essa pergunta a turma
+/// erra muito" sem duplicar a fonte de verdade do poll360.
+model EnqueteResultado {
+  id           String @id @default(uuid())
+  blocoId      String @map("bloco_id")
+  questaoIndex Int    @map("questao_index")
+  enunciado    String
+  /// [{ label, texto, correta, votos, pct }]
+  opcoes       Json
+  totalVotos   Int    @map("total_votos")
+  /// % dos votos que caíram na alternativa correta (0–100).
+  pctAcerto    Int    @map("pct_acerto")
+
+  registradoEm DateTime @default(now()) @map("registrado_em")
+
+  bloco AulaBloco @relation(fields: [blocoId], references: [id], onDelete: Cascade)
+
+  @@unique([blocoId, questaoIndex])
+  @@index([blocoId])
+  @@map("enquete_resultados")
+  @@schema("plano_aula")
+}
+
 /// Vínculo caso↔"curso contêiner" no legado.
 ///
 /// O caso avulso (`/caso/play/:id`) **não** grava casolog/casotime/caseevent —
@@ -214,8 +242,9 @@ model AulaBloco {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  aula       Aula                @relation(fields: [aulaId], references: [id], onDelete: Cascade)
-  tentativas SimuladoTentativa[]
+  aula              Aula                @relation(fields: [aulaId], references: [id], onDelete: Cascade)
+  tentativas        SimuladoTentativa[]
+  enqueteResultados EnqueteResultado[]
 
   @@index([aulaId])
   @@map("aula_blocos")

@@ -8,12 +8,14 @@ import ApresentarPage from "@/components/pages/apresentar/ApresentarPage";
 import ProjecaoPage from "@/components/pages/apresentar/ProjecaoPage";
 import SalaAlunoPage from "@/components/pages/sala/SalaAlunoPage";
 import SimuladoPage from "@/components/pages/simulado/SimuladoPage";
+import MetricasPage from "@/components/pages/metricas/MetricasPage";
 
 function AppRouter() {
   return (
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<OverviewPage />} />
+        <Route path="/metricas" element={<MetricasPage />} />
         <Route path="/nova-aula" element={<AulaConectadaPage />} />
         <Route path="/aulas/:aulaId" element={<AulaCockpitPage />} />
         {/* Modo apresentação: controle no notebook + projeção no projetor. */}

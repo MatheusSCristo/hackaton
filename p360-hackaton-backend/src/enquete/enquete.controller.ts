@@ -15,6 +15,7 @@ import { EnqueteService } from "./enquete.service";
 import {
   GerarEnqueteDto,
   IniciarEnqueteDto,
+  RegistrarResultadoEnqueteDto,
   TrocarQuestaoDto,
 } from "./dto/enquete.dto";
 
@@ -100,6 +101,26 @@ export class EnqueteController {
       blocoId,
       requireProfessorId(user),
       dto.indice,
+    );
+  }
+
+  /**
+   * Registra o resultado agregado de uma questão encerrada — chamado pela
+   * tela de apresentação assim que recebe `poll:ended` do poll360. Base das
+   * métricas de "essa pergunta a turma erra muito".
+   */
+  @Post("resultado")
+  async registrarResultado(
+    @Param("aulaId") aulaId: string,
+    @Param("blocoId") blocoId: string,
+    @Body() dto: RegistrarResultadoEnqueteDto,
+    @LegacyUser() user: LegacyTokenInfo | undefined,
+  ): Promise<void> {
+    return this.enquete.registrarResultado(
+      aulaId,
+      blocoId,
+      requireProfessorId(user),
+      dto,
     );
   }
 }

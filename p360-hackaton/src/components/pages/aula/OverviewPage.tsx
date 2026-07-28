@@ -67,13 +67,22 @@ export default function OverviewPage() {
               Suas aulas, o desempenho das turmas e o que a IA sugere reforçar.
             </Text>
           </Box>
-          <CustomButton
-            variant="solid"
-            icon={Plus}
-            onClick={() => navigate("/nova-aula")}
-          >
-            Criar nova aula
-          </CustomButton>
+          <HStack gap="2">
+            <CustomButton
+              variant="outline"
+              icon={Target}
+              onClick={() => navigate("/metricas")}
+            >
+              Ver métricas
+            </CustomButton>
+            <CustomButton
+              variant="solid"
+              icon={Plus}
+              onClick={() => navigate("/nova-aula")}
+            >
+              Criar nova aula
+            </CustomButton>
+          </HStack>
         </Flex>
       </Box>
 

@@ -70,3 +70,29 @@ export async function trocarQuestaoAtual(
   );
   return data;
 }
+
+export interface OpcaoResultadoEnquete {
+  texto: string;
+  correta: boolean;
+  votos: number;
+}
+
+/**
+ * Registra o resultado agregado de uma questão (chamado quando o professor
+ * encerra a votação) — vira dado pra tela de métricas, já que o poll360 não
+ * expõe voto individual pra consulta depois.
+ */
+export async function registrarResultadoEnquete(
+  aulaId: string,
+  blocoId: string,
+  payload: {
+    questaoIndex: number;
+    enunciado: string;
+    opcoes: OpcaoResultadoEnquete[];
+  },
+): Promise<void> {
+  await hackatonApi.post(
+    `/api/aulas/${aulaId}/blocos/${blocoId}/enquete/resultado`,
+    payload,
+  );
+}

@@ -9,6 +9,7 @@ import type {
 
 import { PrismaService } from "../prisma/prisma.service";
 import { CasosService } from "../casos/casos.service";
+import { MetricasService } from "../metricas/metricas.service";
 import { toBlocoDto } from "./blocos.service";
 import type { CreateAulaDto } from "./dto/create-aula.dto";
 import type {
@@ -56,14 +57,12 @@ function toDto(aula: AulaComRelacoes, casoImagem: string | null = null): AulaDto
   };
 }
 
-const avg = (nums: number[]): number =>
-  nums.length ? Math.round(nums.reduce((s, n) => s + n, 0) / nums.length) : 0;
-
 @Injectable()
 export class AulasService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly casos: CasosService,
+    private readonly metricas: MetricasService,
   ) {}
 
   async create(
@@ -149,16 +148,12 @@ export class AulasService {
 
   async overview(professorId: string): Promise<OverviewDto> {
     const aulas = await this.listByProfessor(professorId);
-    const metricas = aulas
-      .map((a) => a.metrica)
-      .filter((m): m is AulaMetrica => m !== null);
 
-    const kpis: OverviewKpis = {
-      totalAulas: aulas.length,
-      alunosImpactados: metricas.reduce((s, m) => s + m.alunosTotal, 0),
-      mediaAcertos: avg(metricas.map((m) => m.mediaAcertos)),
-      engajamento: avg(metricas.map(engajamentoPct)),
-    };
+    // KPIs vêm de simulado/enquete de verdade (`MetricasService`), não do
+    // fluxo de caso clínico (`AulaMetrica`) — misturar os dois é o que dava
+    // números sem sentido no Overview (aula sem caso executado nunca entrava
+    // na conta, mas contava no total).
+    const kpis: OverviewKpis = await this.metricas.kpis(professorId);
 
     // Uma única consulta em lote pro banco legado, em vez de N+1 por aula.
     const casoIds = [

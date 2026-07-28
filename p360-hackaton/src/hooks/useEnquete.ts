@@ -4,8 +4,10 @@ import {
   gerarEnquete,
   iniciarEnquete,
   publicarEnquete,
+  registrarResultadoEnquete,
   trocarQuestaoAtual,
   type GerarEnquetePayload,
+  type OpcaoResultadoEnquete,
 } from "@/services/enquete";
 
 function useInvalidateBlocos(aulaId: string | undefined) {
@@ -49,5 +51,22 @@ export function useTrocarQuestaoAtual(aulaId: string | undefined) {
     mutationFn: (vars: { blocoId: string; indice: number }) =>
       trocarQuestaoAtual(aulaId as string, vars.blocoId, vars.indice),
     onSuccess: invalidate,
+  });
+}
+
+/** Base das métricas de enquete — chamado quando o professor encerra uma questão. */
+export function useRegistrarResultadoEnquete(aulaId: string | undefined) {
+  return useMutation({
+    mutationFn: (vars: {
+      blocoId: string;
+      questaoIndex: number;
+      enunciado: string;
+      opcoes: OpcaoResultadoEnquete[];
+    }) =>
+      registrarResultadoEnquete(aulaId as string, vars.blocoId, {
+        questaoIndex: vars.questaoIndex,
+        enunciado: vars.enunciado,
+        opcoes: vars.opcoes,
+      }),
   });
 }

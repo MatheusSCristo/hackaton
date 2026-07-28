@@ -1,5 +1,14 @@
 import { Type } from "class-transformer";
-import { IsInt, IsOptional, IsString, Max, Min } from "class-validator";
+import {
+  IsArray,
+  IsBoolean,
+  IsInt,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+  ValidateNested,
+} from "class-validator";
 
 export class GerarEnqueteDto {
   /** Sobrescreve o `nPerguntas` da config do bloco. */
@@ -31,4 +40,33 @@ export class TrocarQuestaoDto {
   @IsInt()
   @Min(0)
   indice!: number;
+}
+
+class OpcaoResultadoDto {
+  @IsString()
+  texto!: string;
+
+  @IsBoolean()
+  correta!: boolean;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  votos!: number;
+}
+
+/** Resultado agregado de uma questão, registrado quando o professor encerra a votação. */
+export class RegistrarResultadoEnqueteDto {
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  questaoIndex!: number;
+
+  @IsString()
+  enunciado!: string;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => OpcaoResultadoDto)
+  opcoes!: OpcaoResultadoDto[];
 }

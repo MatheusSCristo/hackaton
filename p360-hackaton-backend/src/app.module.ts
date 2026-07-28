@@ -11,6 +11,7 @@ import { HealthModule } from "./health/health.module";
 import { MateriaisModule } from "./materiais/materiais.module";
 import { LegacyDbModule } from "./legacy-db/legacy-db.module";
 import { LlmModule } from "./llm/llm.module";
+import { MetricasModule } from "./metricas/metricas.module";
 import { PrismaModule } from "./prisma/prisma.module";
 import { SessaoModule } from "./sessao/sessao.module";
 
@@ -29,6 +30,7 @@ import { SessaoModule } from "./sessao/sessao.module";
     SessaoModule,
     CasoModule,
     MateriaisModule,
+    MetricasModule,
   ],
 })
 export class AppModule {}

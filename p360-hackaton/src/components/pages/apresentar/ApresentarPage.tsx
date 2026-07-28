@@ -48,6 +48,7 @@ import {
 import {
   useIniciarEnquete,
   usePublicarEnquete,
+  useRegistrarResultadoEnquete,
   useTrocarQuestaoAtual,
 } from "@/hooks/useEnquete";
 import { useEnqueteLive } from "@/hooks/useEnqueteLive";
@@ -659,6 +660,43 @@ function ControleEnquete({
     live.iniciar();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pin, indice, live.ehSpeaker, live.pollAtivo]);
+
+  // Assim que a votação encerra, registra o resultado agregado — é a base
+  // da tela de métricas (o poll360 não guarda voto individual pra consulta
+  // depois). Uma vez por questão encerrada, mesmo que o componente rerenderize.
+  const registrarResultado = useRegistrarResultadoEnquete(aulaId);
+  const resultadoRegistrado = useRef<string | null>(null);
+  useEffect(() => {
+    const chave = `${pin ?? ""}:${indice}`;
+    if (!live.encerrada || !live.pollAtivo || resultadoRegistrado.current === chave) {
+      return;
+    }
+    resultadoRegistrado.current = chave;
+
+    const perguntaAtual = perguntas[indice] as
+      | { enunciado?: string; opcoes?: { texto?: string; correta?: boolean }[] }
+      | undefined;
+    const opcoesLocais = perguntaAtual?.opcoes ?? [];
+
+    registrarResultado.mutate({
+      blocoId: bloco.id,
+      questaoIndex: indice,
+      enunciado:
+        perguntaAtual?.enunciado ??
+        live.pollAtivo?.questionText ??
+        live.pollAtivo?.title ??
+        "",
+      // Casa por posição: o poll360 cria as opções na mesma ordem que
+      // enviamos (`displayOrder`), então o índice é o único jeito de saber
+      // qual opção era a correta (o poll360 não devolve isso pro speaker).
+      opcoes: opcoes.map((opcaoAoVivo, i) => ({
+        texto: opcoesLocais[i]?.texto ?? opcaoAoVivo.optionText ?? opcaoAoVivo.text ?? "",
+        correta: opcoesLocais[i]?.correta === true,
+        votos: live.votos[opcaoAoVivo.id] ?? 0,
+      })),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [live.encerrada, pin, indice]);
 
   const temProxima = indice + 1 < total;
   const temAnterior = indice > 0;
