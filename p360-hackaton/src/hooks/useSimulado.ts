@@ -8,23 +8,26 @@ import {
 } from "@/services/materiais";
 
 /** Simulado do aluno — página própria, fora da sessão ao vivo. */
-export function useSimulado(blocoId: string | undefined) {
+export function useSimulado(blocoId: string | undefined, alunoToken: string) {
   return useQuery({
-    queryKey: ["simulado", blocoId],
-    queryFn: () => getSimulado(blocoId as string),
+    queryKey: ["simulado", blocoId, alunoToken],
+    queryFn: () => getSimulado(blocoId as string, alunoToken),
     enabled: Boolean(blocoId),
     retry: false,
   });
 }
 
-export function useResponderSimuladoPorBloco(blocoId: string | undefined) {
+export function useResponderSimuladoPorBloco(
+  blocoId: string | undefined,
+  alunoToken: string,
+) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (
       respostas: { questaoIndex: number; alternativaLabel: string | null }[],
-    ) => responderSimuladoPorBloco(blocoId as string, respostas),
+    ) => responderSimuladoPorBloco(blocoId as string, alunoToken, respostas),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["simulado", blocoId] });
+      qc.invalidateQueries({ queryKey: ["simulado", blocoId, alunoToken] });
     },
   });
 }

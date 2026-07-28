@@ -9,6 +9,7 @@ import { MaterialComplementarIaService } from "./material-complementar-ia.servic
 import {
   MateriaisAlunoController,
   MateriaisController,
+  MateriaisPublicosController,
   SimuladoAlunoController,
 } from "./materiais.controller";
 import { MateriaisService } from "./materiais.service";
@@ -23,6 +24,7 @@ import { SlidesIaService } from "./slides-ia.service";
   controllers: [
     MateriaisController,
     MateriaisAlunoController,
+    MateriaisPublicosController,
     SimuladoAlunoController,
   ],
   providers: [

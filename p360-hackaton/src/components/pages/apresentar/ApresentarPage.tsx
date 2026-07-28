@@ -35,7 +35,7 @@ import type {
 import { useAula } from "@/hooks/useAulas";
 import { useBlocos } from "@/hooks/useBlocos";
 import {
-  useCriarSessao,
+  useAtualizarSlideSessao,
   useEncerrarSessao,
   useLiberarBloco,
   useSessaoAtual,
@@ -51,6 +51,7 @@ import { useSessaoLive } from "@/hooks/useSessaoLive";
 import type { Bloco } from "@/services/blocos";
 import type { Apresentacao } from "@/services/materiais";
 import type { TipoBloco } from "@/services/blocos";
+import type { EstadoSessao } from "@/services/sessao";
 import { getAccessToken } from "@/utils/accessToken";
 import { irParaLogin } from "@/utils/login";
 
@@ -75,7 +76,6 @@ export default function ApresentarPage() {
   const live = useSessaoLive(sessaoRest?.codigo);
   const sessao = live.estado ?? sessaoRest ?? null;
 
-  const criarSessao = useCriarSessao(aulaId);
   const liberar = useLiberarBloco(aulaId);
   const liberarCaso = useLiberarCaso(aulaId);
   const encerrarSessao = useEncerrarSessao(aulaId);
@@ -88,13 +88,12 @@ export default function ApresentarPage() {
   const bloco = sequencia[estado.passo];
   const ultimo = estado.passo >= sequencia.length - 1;
 
-  // A apresentação precisa de sessão aberta: é ela que leva as atividades aos
-  // alunos. Abrir sozinho evita um passo manual antes de projetar.
-  useEffect(() => {
-    if (blocos && !sessaoRest && !criarSessao.isPending) criarSessao.mutate();
-    // Só na primeira vez que descobrimos que não há sessão.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [blocos, sessaoRest]);
+  // Apresentar é só a apresentação — não cria sessão nenhuma. Sem sessão
+  // (ou com ela ainda "aguardando"), o professor navega pelos passos à
+  // vontade só pra si mesmo/quem estiver na janela de projeção; a liberação
+  // pra turma real (`liberarEtapa` abaixo) simplesmente não tem o que fazer
+  // até existir uma sessão, e só chega de fato aos alunos quando ela estiver
+  // "ativa" (confirmada na tela de QR Code).
 
   /** Libera o bloco da etapa para a turma (caso tem rota própria). */
   const liberarEtapa = (alvo: Bloco | undefined) => {
@@ -253,7 +252,7 @@ export default function ApresentarPage() {
               bloco={bloco}
               estado={estado}
               atualizar={atualizar}
-              sessaoId={sessao?.sessaoId}
+              sessao={sessao}
             />
           )}
 
@@ -309,7 +308,7 @@ interface EtapaProps {
   bloco: Bloco | undefined;
   estado: EstadoApresentacao;
   atualizar: (patch: Partial<EstadoApresentacao>) => void;
-  sessaoId: string | undefined;
+  sessao: EstadoSessao | null;
 }
 
 function EtapaAtual({
@@ -317,13 +316,18 @@ function EtapaAtual({
   bloco,
   estado,
   atualizar,
-  sessaoId,
+  sessao,
 }: EtapaProps) {
   if (!bloco) return <Aviso texto="Etapa não encontrada." />;
 
   if (bloco.tipo === "slides") {
     return (
-      <ControleSlides bloco={bloco} estado={estado} atualizar={atualizar} />
+      <ControleSlides
+        bloco={bloco}
+        estado={estado}
+        atualizar={atualizar}
+        sessao={sessao}
+      />
     );
   }
   if (bloco.tipo === "caso") {
@@ -331,7 +335,7 @@ function EtapaAtual({
       <ControleCaso
         aulaId={aulaId}
         bloco={bloco}
-        sessaoId={sessaoId}
+        sessaoId={sessao?.sessaoId}
         projetarDados={estado.projetarDados}
         onProjetar={(v) => atualizar({ projetarDados: v })}
       />
@@ -360,15 +364,28 @@ function ControleSlides({
   bloco,
   estado,
   atualizar,
+  sessao,
 }: {
   bloco: Bloco;
   estado: { slide: number };
   atualizar: (patch: { slide: number }) => void;
+  sessao: EstadoSessao | null;
 }) {
   const apresentacao = bloco.output?.apresentacao as Apresentacao | undefined;
   const slides = apresentacao?.slides ?? [];
   const indiceAtual = Math.min(estado.slide, Math.max(0, slides.length - 1));
   const slide = slides[indiceAtual];
+
+  const atualizarSlideSessao = useAtualizarSlideSessao();
+  // Espelha pra turma sempre que existir sessão (mesmo em "aguardando", antes
+  // da confirmação) — quem já entrou pelo QR Code acompanha os slides ao
+  // vivo; só uma sessão encerrada (ou nenhuma) não tem pra quem espelhar.
+  const irParaSlide = (indice: number) => {
+    atualizar({ slide: indice });
+    if (sessao && sessao.status !== "encerrada") {
+      atualizarSlideSessao.mutate({ sessaoId: sessao.sessaoId, slideAtual: indice });
+    }
+  };
 
   if (!apresentacao || !slide) {
     return (
@@ -381,7 +398,7 @@ function ControleSlides({
       <PresentationViewer
         presentation={apresentacao}
         activeIndex={indiceAtual}
-        onIndexChange={(indice) => atualizar({ slide: indice })}
+        onIndexChange={irParaSlide}
       />
 
       {slide.speakerNotes && (
@@ -401,7 +418,7 @@ function ControleSlides({
           icon={ChevronLeft}
           size="sm"
           disabled={indiceAtual === 0}
-          onClick={() => atualizar({ slide: indiceAtual - 1 })}
+          onClick={() => irParaSlide(indiceAtual - 1)}
         >
           Slide anterior
         </CustomButton>
@@ -410,7 +427,7 @@ function ControleSlides({
           icon={ChevronRight}
           size="sm"
           disabled={indiceAtual >= slides.length - 1}
-          onClick={() => atualizar({ slide: indiceAtual + 1 })}
+          onClick={() => irParaSlide(indiceAtual + 1)}
         >
           Próximo slide
         </CustomButton>

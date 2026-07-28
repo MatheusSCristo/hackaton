@@ -204,23 +204,39 @@ const baseAluno = (sessaoId: string, blocoId: string) =>
   `/api/sessoes/${sessaoId}/blocos/${blocoId}/materiais`;
 
 /**
- * Simulado é **pós-aula**: tem página própria, fora da sessão ao vivo. O acesso
- * depende de o professor ter disponibilizado, não de a aula estar acontecendo.
+ * URL pública (sem login) do PDF de resumo/material complementar
+ * disponibilizado pro turma — usada num `window.open` direto, já que o
+ * endpoint é `@Public()` e não depende do header de autenticação do axios.
  */
-export async function getSimulado(blocoId: string): Promise<SimuladoAluno> {
+export function materialPublicoDownloadUrl(blocoId: string): string {
+  return `${Environment.VITE_HACKATON_API_URL}/api/materiais-publicos/${blocoId}/download`;
+}
+
+/**
+ * Simulado é **pós-aula**: tem página própria, fora da sessão ao vivo. O acesso
+ * depende de o professor ter disponibilizado, não de login — `alunoToken` é a
+ * identidade anônima persistente do navegador (ver `utils/alunoToken.ts`); se
+ * o aluno estiver logado, o backend prioriza a identidade real de qualquer jeito.
+ */
+export async function getSimulado(
+  blocoId: string,
+  alunoToken: string,
+): Promise<SimuladoAluno> {
   const { data } = await hackatonApi.get<SimuladoAluno>(
     `/api/simulados/${blocoId}`,
+    { params: { alunoToken } },
   );
   return data;
 }
 
 export async function responderSimuladoPorBloco(
   blocoId: string,
+  alunoToken: string,
   respostas: { questaoIndex: number; alternativaLabel: string | null }[],
 ): Promise<ResultadoSimulado> {
   const { data } = await hackatonApi.post<ResultadoSimulado>(
     `/api/simulados/${blocoId}/responder`,
-    { respostas },
+    { respostas, alunoToken },
   );
   return data;
 }

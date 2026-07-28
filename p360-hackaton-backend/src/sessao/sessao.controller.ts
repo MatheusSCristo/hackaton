@@ -116,6 +116,36 @@ export class SessaoController {
     return estado;
   }
 
+  /** Confirma o início oficial — é o que o professor clica na tela de QR Code. */
+  @Post("sessoes/:sessaoId/confirmar")
+  async confirmar(
+    @Param("sessaoId") sessaoId: string,
+    @LegacyUser() user: LegacyTokenInfo | undefined,
+  ): Promise<EstadoSessaoDto> {
+    const estado = await this.sessao.confirmarInicio(
+      sessaoId,
+      requireProfessorId(user),
+    );
+    this.gateway.publicarEstado(estado.codigo, estado);
+    return estado;
+  }
+
+  /** Espelha o slide atual da apresentação para a turma conectada. */
+  @Post("sessoes/:sessaoId/slide")
+  async atualizarSlide(
+    @Param("sessaoId") sessaoId: string,
+    @Body() dto: { slideAtual: number },
+    @LegacyUser() user: LegacyTokenInfo | undefined,
+  ): Promise<EstadoSessaoDto> {
+    const estado = await this.sessao.atualizarSlide(
+      sessaoId,
+      requireProfessorId(user),
+      Number(dto.slideAtual) || 0,
+    );
+    this.gateway.publicarEstado(estado.codigo, estado);
+    return estado;
+  }
+
   @Post("sessoes/:sessaoId/encerrar")
   async encerrar(
     @Param("sessaoId") sessaoId: string,

@@ -179,7 +179,7 @@ function BlocoCard({ aulaId, bloco, posicao, sessao }: BlocoCardProps) {
       borderRadius="xl"
       p={{ base: 4, md: 5 }}
     >
-      <Flex align="flex-start" gap="3" mb={bloco.tipo === "enquete" ? 4 : 0}>
+      <Flex align="flex-start" gap="3" mb="4">
         <Flex
           w="26px"
           h="26px"
@@ -242,6 +242,7 @@ function BlocoCard({ aulaId, bloco, posicao, sessao }: BlocoCardProps) {
             bloco.tipo as "slides" | "simulado" | "resumo" | "material_complementar"
           }
           liberado={liberado}
+          sessaoAtiva={sessao?.status === "ativa"}
         />
       )}
 

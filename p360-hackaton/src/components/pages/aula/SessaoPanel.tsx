@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import {
   Badge,
   Box,
@@ -8,12 +9,13 @@ import {
   Text,
   CustomButton,
 } from "@cursosactive/p360-new-ui";
-import { Radio, Share2, Square, Users } from "lucide-react";
+import { PlayCircle, Radio, Share2, Square, Users, X } from "lucide-react";
 
 import { BLOCO_META } from "./blocoMeta";
-import { useCriarSessao, useEncerrarSessao } from "@/hooks/useSessao";
+import { useConfirmarInicioSessao, useEncerrarSessao } from "@/hooks/useSessao";
 import type { EstadoSessao } from "@/services/sessao";
 import type { TipoBloco } from "@/services/blocos";
+import { getAccessToken } from "@/utils/accessToken";
 
 interface SessaoPanelProps {
   aulaId: string;
@@ -40,8 +42,40 @@ export default function SessaoPanel({
   conectado,
   erroLive,
 }: SessaoPanelProps) {
-  const criar = useCriarSessao(aulaId);
   const encerrar = useEncerrarSessao(aulaId);
+  const confirmar = useConfirmarInicioSessao(aulaId);
+
+  // Referência da janela de QR Code — permite fechá-la na hora, direto, sem
+  // depender só do socket (que a própria janela também escuta e usa pra se
+  // fechar sozinha; isto aqui é redundância de propósito, mais confiável).
+  const janelaQrRef = useRef<Window | null>(null);
+
+  /**
+   * Abre a tela de QR Code numa janela própria — é ela quem cria (ou
+   * reaproveita) a sessão, nunca este clique diretamente. Essa janela é só
+   * pra projetar (QR Code + link, nada de controle/contagem — isso é só
+   * daqui, que é privado do professor).
+   */
+  const abrirTelaDeSessao = () => {
+    const token = getAccessToken();
+    const url = token
+      ? `/aulas/${aulaId}/sessao/abrir?accessToken=${encodeURIComponent(token)}`
+      : `/aulas/${aulaId}/sessao/abrir`;
+    // Sem `noopener` aqui de propósito: precisamos da referência pra fechar a
+    // janela depois (confirmar/cancelar). É a mesma origem/rota nossa, então
+    // não há o risco de reverse tabnabbing que `noopener` normalmente evita.
+    janelaQrRef.current = window.open(
+      url,
+      "p360-sessao-qr",
+      "width=900,height=700",
+    );
+  };
+
+  const fecharJanelaQr = () => {
+    if (janelaQrRef.current && !janelaQrRef.current.closed) {
+      janelaQrRef.current.close();
+    }
+  };
 
   if (isLoading) {
     return (
@@ -64,17 +98,66 @@ export default function SessaoPanel({
           Sessão ao vivo
         </Heading>
         <Text fontSize="sm" color="gray.500" mb="4">
-          Abra a sessão para gerar o link de entrada da turma.
+          Abra a sessão para gerar o QR Code/link de entrada da turma.
         </Text>
-        <CustomButton
-          variant="solid"
-          icon={Radio}
-          size="sm"
-          isLoading={criar.isPending}
-          onClick={() => criar.mutate()}
-        >
+        <CustomButton variant="solid" icon={Radio} size="sm" onClick={abrirTelaDeSessao}>
           Abrir sessão
         </CustomButton>
+      </Box>
+    );
+  }
+
+  // Sala aberta, mas o professor ainda não confirmou: só ele vê quantos já
+  // entraram e decide se coloca a aula no ar ou desiste (a projeção — tela
+  // de QR Code — não mostra nada disso, de propósito).
+  if (estado.status === "aguardando") {
+    return (
+      <Box
+        bg="white"
+        borderWidth="1px"
+        borderColor="orange.300"
+        borderRadius="xl"
+        p={{ base: 4, md: 5 }}
+      >
+        <Heading size="sm" color="gray.800" mb="1">
+          Sessão ao vivo
+        </Heading>
+        <Text fontSize="sm" color="gray.500" mb="3">
+          A sala está aberta — a turma já pode entrar pelo QR Code projetado.
+        </Text>
+        <Flex align="center" gap="2" color="gray.600" mb="4">
+          <Users size={14} />
+          <Text fontSize="sm">
+            {conectados ?? estado.participantes}{" "}
+            {(conectados ?? estado.participantes) === 1
+              ? "usuário conectado"
+              : "usuários conectados"}
+          </Text>
+        </Flex>
+        <HStack gap="2">
+          <CustomButton
+            variant="solid"
+            icon={PlayCircle}
+            size="sm"
+            isLoading={confirmar.isPending}
+            onClick={() =>
+              confirmar.mutate(estado.sessaoId, { onSuccess: fecharJanelaQr })
+            }
+          >
+            Confirmar início da sessão
+          </CustomButton>
+          <CustomButton
+            variant="outline"
+            icon={X}
+            size="sm"
+            isLoading={encerrar.isPending}
+            onClick={() =>
+              encerrar.mutate(estado.sessaoId, { onSuccess: fecharJanelaQr })
+            }
+          >
+            Cancelar
+          </CustomButton>
+        </HStack>
       </Box>
     );
   }

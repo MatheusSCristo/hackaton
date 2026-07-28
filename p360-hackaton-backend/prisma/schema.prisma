@@ -63,6 +63,9 @@ model SessaoAula {
   blocoAtualId String? @map("bloco_atual_id")
   /// Estado do bloco atual: liberado | encerrado
   estadoAtual  String? @map("estado_atual")
+  /// Índice do slide que o professor está mostrando — espelhado para a turma
+  /// conectada enquanto a sessão está "ativa" (ver `confirmarInicio`).
+  slideAtual   Int     @default(0) @map("slide_atual")
 
   startedAt DateTime? @map("started_at")
   endedAt   DateTime? @map("ended_at")

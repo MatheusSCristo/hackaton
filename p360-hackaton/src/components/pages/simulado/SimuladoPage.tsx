@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useParams } from "react-router";
 import {
   Badge,
@@ -10,51 +10,26 @@ import {
   Text,
   CustomButton,
 } from "@cursosactive/p360-new-ui";
-import {
-  Check,
-  ClipboardList,
-  LockKeyhole,
-  LogIn,
-  Send,
-  X,
-} from "lucide-react";
+import { Check, ClipboardList, LockKeyhole, Send, X } from "lucide-react";
 
 import { useResponderSimuladoPorBloco, useSimulado } from "@/hooks/useSimulado";
 import type { ResultadoSimulado } from "@/services/materiais";
-import { getAccessToken } from "@/utils/accessToken";
-import { irParaLogin } from "@/utils/login";
+import { getAlunoToken } from "@/utils/alunoToken";
 
 /**
  * Página do simulado — **pós-aula**, o aluno faz em casa no próprio tempo.
  *
- * Não depende da sessão ao vivo: o acesso é liberado quando o professor
- * disponibiliza. Exige login porque a tentativa é individual (uma por aluno).
+ * Não exige login: a identidade é um token anônimo gerado e persistido no
+ * navegador (`getAlunoToken`), o suficiente pra impedir refazer e virar
+ * métrica de desempenho. Não depende da sessão ao vivo — o acesso é liberado
+ * quando o professor disponibiliza.
  */
 export default function SimuladoPage() {
   const { blocoId } = useParams<{ blocoId: string }>();
-  const { data, isLoading, error } = useSimulado(blocoId);
-  const responder = useResponderSimuladoPorBloco(blocoId);
+  const alunoToken = useMemo(getAlunoToken, []);
+  const { data, isLoading, error } = useSimulado(blocoId, alunoToken);
+  const responder = useResponderSimuladoPorBloco(blocoId, alunoToken);
   const [escolhas, setEscolhas] = useState<Record<number, string>>({});
-
-  if (!getAccessToken()) {
-    return (
-      <Moldura>
-        <Aviso
-          titulo="Entre com sua conta"
-          texto="O simulado guarda o seu resultado, então é preciso estar logado no Paciente 360."
-          acao={
-            <CustomButton
-              variant="solid"
-              icon={LogIn}
-              onClick={() => irParaLogin()}
-            >
-              Entrar com minha conta
-            </CustomButton>
-          }
-        />
-      </Moldura>
-    );
-  }
 
   if (isLoading) {
     return (

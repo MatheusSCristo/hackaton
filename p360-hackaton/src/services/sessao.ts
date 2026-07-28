@@ -10,6 +10,8 @@ export interface EstadoSessao {
   aulaTitulo: string;
   blocoAtual: Bloco | null;
   estadoAtual: "liberado" | "encerrado" | null;
+  /** Slide que o professor está mostrando — espelhado pra turma quando "ativa". */
+  slideAtual: number;
   blocos: Bloco[];
   participantes: number;
 }
@@ -83,6 +85,29 @@ export async function encerrarSessao(sessaoId: string): Promise<EstadoSessao> {
   const { data } = await hackatonApi.post<EstadoSessao>(
     `/api/sessoes/${sessaoId}/encerrar`,
     {},
+  );
+  return data;
+}
+
+/** Confirma o início oficial — só depois disso a turma entra no modo ao vivo. */
+export async function confirmarInicioSessao(
+  sessaoId: string,
+): Promise<EstadoSessao> {
+  const { data } = await hackatonApi.post<EstadoSessao>(
+    `/api/sessoes/${sessaoId}/confirmar`,
+    {},
+  );
+  return data;
+}
+
+/** Espelha o slide atual da apresentação para a turma conectada. */
+export async function atualizarSlideSessao(
+  sessaoId: string,
+  slideAtual: number,
+): Promise<EstadoSessao> {
+  const { data } = await hackatonApi.post<EstadoSessao>(
+    `/api/sessoes/${sessaoId}/slide`,
+    { slideAtual },
   );
   return data;
 }

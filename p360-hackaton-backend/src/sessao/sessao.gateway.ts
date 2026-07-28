@@ -71,8 +71,18 @@ export class SessaoGateway {
    * de cada ação do professor — a escrita no banco vem primeiro.
    */
   publicarEstado(codigo: string, estado: unknown): void {
-    this.server?.to(sala(codigo)).emit("sessao:estado", estado);
-    this.server?.to(sala(codigo)).emit("sessao:atividade", estado);
+    if (!this.server) {
+      // Não deveria acontecer em produção (o Nest injeta o server antes de
+      // qualquer request HTTP ser servida) — logado pra não sumir em
+      // silêncio caso aconteça, já que esse era exatamente o tipo de falha
+      // que faria uma atualização nunca chegar à turma.
+      this.logger.warn(
+        `publicarEstado(${codigo}) chamado antes do WebSocketServer estar pronto.`,
+      );
+      return;
+    }
+    this.server.to(sala(codigo)).emit("sessao:estado", estado);
+    this.server.to(sala(codigo)).emit("sessao:atividade", estado);
   }
 
   /** Conexões na sala — presença aproximada, suficiente para "N na sala". */

@@ -10,6 +10,7 @@ import type { Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { BlocosService } from "../aulas/blocos.service";
 import type { BlocoDto } from "../aulas/dto/bloco.dto";
+import { SessaoGateway } from "../sessao/sessao.gateway";
 import { SessaoService } from "../sessao/sessao.service";
 import { ContextoAulaService } from "./contexto-aula.service";
 import { IaJsonService } from "./ia-json.service";
@@ -114,7 +115,21 @@ export class MateriaisService {
     private readonly pdf: PdfRendererService,
     private readonly ia: IaJsonService,
     private readonly sessao: SessaoService,
+    private readonly sessaoGateway: SessaoGateway,
   ) {}
+
+  /**
+   * Reflete pra turma conectada agora mesmo (sem esperar reload/refetch): o
+   * "disponibilizar/recolher pra turma" e o gabarito não passam pela sessão
+   * ao vivo pra gravar, mas o aluno já conectado na sala precisa ver o botão
+   * aparecer/sumir na hora — daí o mesmo canal de socket da sessão.
+   */
+  private async espelharParaSessaoDaAula(aulaId: string): Promise<void> {
+    const sessao = await this.sessao.sessaoVivaDaAula(aulaId);
+    if (!sessao) return;
+    const estado = await this.sessao.estadoPorId(sessao.id);
+    this.sessaoGateway.publicarEstado(sessao.codigo, estado);
+  }
 
   /**
    * Gera o material do bloco a partir do que o professor já escolheu.
@@ -186,6 +201,30 @@ export class MateriaisService {
     professorId: string,
   ): Promise<ArquivoGerado> {
     const { bloco } = await this.carregar(aulaId, blocoId, professorId);
+    return this.renderizarArquivo(bloco);
+  }
+
+  /**
+   * Mesmo arquivo, mas para a turma: sem checar dono da aula, só se o
+   * professor disponibilizou este material pós-aula (`publicadoEm`) — é o
+   * mesmo gate usado pelo simulado do aluno. Slides não passam por aqui:
+   * eles são liberados por sessão (`slidesParaAluno`), não por publicação.
+   */
+  async baixarPublico(blocoId: string): Promise<ArquivoGerado> {
+    const bloco = await this.blocoPorId(blocoId);
+    if (bloco.tipo !== "resumo" && bloco.tipo !== "material_complementar") {
+      throw new BadRequestException("Este material não está disponível para a turma.");
+    }
+    const output = asObject(bloco.output) ?? {};
+    if (!output.publicadoEm) {
+      throw new ForbiddenException(
+        "Este material ainda não foi disponibilizado pelo professor.",
+      );
+    }
+    return this.renderizarArquivo(bloco);
+  }
+
+  private async renderizarArquivo(bloco: { tipo: string; output: Prisma.JsonValue }): Promise<ArquivoGerado> {
     const output = asObject(bloco.output) ?? {};
 
     if (bloco.tipo === "slides") {
@@ -311,9 +350,11 @@ export class MateriaisService {
     publicado: boolean,
   ): Promise<BlocoDto> {
     await this.carregar(aulaId, blocoId, professorId);
-    return this.blocos.mergeOutput(blocoId, {
+    const resultado = await this.blocos.mergeOutput(blocoId, {
       publicadoEm: publicado ? new Date().toISOString() : null,
     });
+    await this.espelharParaSessaoDaAula(aulaId);
+    return resultado;
   }
 
   /** Libera (ou oculta) o gabarito comentado do simulado. */

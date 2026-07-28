@@ -104,33 +104,58 @@ export class MaterialComplementarIaService {
     partes.push("", `Idioma de todo o conteúdo: ${ctx.idioma}.`);
     const userPrompt = partes.join("\n");
 
-    let ultimoErro = "";
-    for (let tentativa = 0; tentativa < 2; tentativa++) {
-      const prompt = ultimoErro
-        ? `${userPrompt}\n\nA tentativa anterior foi rejeitada por: ${ultimoErro}. Corrija exatamente esses pontos.`
-        : userPrompt;
+    // 1ª tentativa: pesquisa web de verdade (a parte cara, com várias rodadas
+    // de busca). Se a saída não bater com o schema, a 2ª tentativa NÃO refaz
+    // a pesquisa do zero — só pede pra reformatar o mesmo conteúdo já
+    // encontrado, corrigindo os problemas apontados. Isso evita dobrar o
+    // tempo total (cada rodada de busca web já é o gargalo) sem perder
+    // qualidade, já que as referências pesquisadas continuam as mesmas.
+    const primeiraTentativa = await this.llmProvider.generateJson({
+      systemPrompt: SYSTEM_PROMPT,
+      userPrompt,
+      inputSchema: INPUT_SCHEMA,
+      enableWebSearch: true,
+      maxTokens: 4000,
+      label: TOOL_NAME,
+    });
 
-      const bruto = await this.llmProvider.generateJson({
-        systemPrompt: SYSTEM_PROMPT,
-        userPrompt: prompt,
-        inputSchema: INPUT_SCHEMA,
-        enableWebSearch: true,
-        maxTokens: 4000,
-        label: TOOL_NAME,
-      });
+    const parsedPrimeira = materialComplementarSchema.safeParse(parseLlmJson(primeiraTentativa));
+    if (parsedPrimeira.success) return parsedPrimeira.data;
 
-      const parsed = materialComplementarSchema.safeParse(parseLlmJson(bruto));
-      if (parsed.success) return parsed.data;
+    const erroPrimeira = parsedPrimeira.error.issues
+      .slice(0, 5)
+      .map((i) => `${i.path.join(".") || "raiz"}: ${i.message}`)
+      .join("; ");
+    this.logger.warn(`Saída da IA reprovada (tentativa 1, com busca web): ${erroPrimeira}`);
 
-      ultimoErro = parsed.error.issues
-        .slice(0, 5)
-        .map((i) => `${i.path.join(".") || "raiz"}: ${i.message}`)
-        .join("; ");
-      this.logger.warn(`Saída da IA reprovada (tentativa ${tentativa + 1}): ${ultimoErro}`);
-    }
+    const promptCorrecao = [
+      "Você gerou o JSON abaixo para uma lista de material complementar, mas ele foi rejeitado por um validador.",
+      `Problema(s): ${erroPrimeira}.`,
+      "Corrija SOMENTE a estrutura/formato apontado no problema, mantendo exatamente as mesmas referências e URLs já encontradas (não invente novas, não pesquise de novo).",
+      "JSON gerado anteriormente:",
+      primeiraTentativa,
+    ].join("\n\n");
+
+    const segundaTentativa = await this.llmProvider.generateJson({
+      systemPrompt: SYSTEM_PROMPT,
+      userPrompt: promptCorrecao,
+      inputSchema: INPUT_SCHEMA,
+      enableWebSearch: false,
+      maxTokens: 4000,
+      label: `${TOOL_NAME}_correcao`,
+    });
+
+    const parsedSegunda = materialComplementarSchema.safeParse(parseLlmJson(segundaTentativa));
+    if (parsedSegunda.success) return parsedSegunda.data;
+
+    const erroSegunda = parsedSegunda.error.issues
+      .slice(0, 5)
+      .map((i) => `${i.path.join(".") || "raiz"}: ${i.message}`)
+      .join("; ");
+    this.logger.warn(`Saída da IA reprovada (tentativa 2, correção de formato): ${erroSegunda}`);
 
     throw new UnprocessableEntityException(
-      `A IA não produziu um resultado válido (${ultimoErro}). Tente gerar novamente.`,
+      `A IA não produziu um resultado válido (${erroSegunda}). Tente gerar novamente.`,
     );
   }
 }

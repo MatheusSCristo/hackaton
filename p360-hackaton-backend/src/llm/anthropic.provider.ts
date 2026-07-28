@@ -10,7 +10,13 @@ import { LlmProviderUnavailableException } from "./exceptions/llm-provider-unava
 const DEFAULT_MODEL = "claude-haiku-4-5-20251001";
 const DEFAULT_MAX_TOKENS = 8000;
 const JSON_PREFILL = "{";
-const WEB_SEARCH_MAX_USES = 8;
+// A tool `web_search` roda suas rodadas de busca em série dentro da mesma
+// requisição (busca → modelo decide se busca de novo → ...). 8 rodadas para
+// até 8 referências media ~1:1 busca-por-referência e é o principal motivo
+// do material complementar demorar muito mais que as outras etapas; 4 ainda
+// dá espaço de sobra para o modelo buscar termos mais amplos e escolher
+// entre resultados, sem a cauda longa de latência das rodadas extras.
+const WEB_SEARCH_MAX_USES = 4;
 const WEB_SEARCH_TIMEOUT_MS = 60_000;
 
 /** Fallback do Gemini — saída estruturada via tool use forçado (robusto em qualquer versão do SDK). */

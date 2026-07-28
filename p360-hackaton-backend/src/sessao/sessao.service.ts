@@ -21,6 +21,8 @@ export interface EstadoSessaoDto {
   aulaTitulo: string;
   blocoAtual: BlocoDto | null;
   estadoAtual: string | null;
+  /** Slide que o professor está mostrando — espelhado pra turma (sessão "ativa"). */
+  slideAtual: number;
   /** Sequência inteira, para o cockpit. */
   blocos: BlocoDto[];
   participantes: number;
@@ -125,6 +127,22 @@ export class SessaoService {
     return this.estadoPorId(sessao.id);
   }
 
+  /**
+   * Sessão viva da aula (qualquer status não-encerrada), sem exigir dono —
+   * quem chama já validou a posse da aula por outro caminho (ex.: publicar
+   * material pós-aula). Usada só pra saber pra qual sala espelhar um evento.
+   */
+  async sessaoVivaDaAula(
+    aulaId: string,
+  ): Promise<{ id: string; codigo: string } | null> {
+    const sessao = await this.prisma.sessaoAula.findFirst({
+      where: { aulaId, status: { in: ["aguardando", "ativa"] } },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, codigo: true },
+    });
+    return sessao;
+  }
+
   async estadoPorCodigo(codigo: string): Promise<EstadoSessaoDto> {
     const sessao = await this.buscarPorCodigo(codigo);
     return this.estadoPorId(sessao.id);
@@ -174,6 +192,10 @@ export class SessaoService {
   /**
    * Libera um bloco para a turma. Idempotente: escreve o estado desejado em vez
    * de alternar — protege contra duplo-clique e retry de rede.
+   *
+   * Não muda `status`: a sessão só passa a "ativa" com uma confirmação
+   * explícita do professor (`confirmarInicio`) — liberar um bloco antes disso
+   * não inicia nada sozinho (ver regra de sessão nunca iniciar automática).
    */
   async liberarBloco(
     sessaoId: string,
@@ -185,12 +207,43 @@ export class SessaoService {
 
     await this.prisma.sessaoAula.update({
       where: { id: sessaoId },
-      data: {
-        blocoAtualId: blocoId,
-        estadoAtual: "liberado",
-        status: "ativa",
-        startedAt: sessao.startedAt ?? new Date(),
-      },
+      data: { blocoAtualId: blocoId, estadoAtual: "liberado" },
+    });
+    return this.estadoPorId(sessaoId);
+  }
+
+  /**
+   * Confirma o início oficial da sessão — único jeito de ela virar "ativa".
+   * É o que o professor clica depois de ver a turma entrando pelo QR Code.
+   */
+  async confirmarInicio(
+    sessaoId: string,
+    professorId: string,
+  ): Promise<EstadoSessaoDto> {
+    const sessao = await this.assertSessaoDoProfessor(sessaoId, professorId);
+    if (sessao.status === "encerrada") {
+      throw new BadRequestException("Esta sessão já foi encerrada.");
+    }
+    await this.prisma.sessaoAula.update({
+      where: { id: sessaoId },
+      data: { status: "ativa", startedAt: sessao.startedAt ?? new Date() },
+    });
+    return this.estadoPorId(sessaoId);
+  }
+
+  /**
+   * Espelha o slide que o professor está apresentando para a turma
+   * conectada — só faz sentido com a sessão já confirmada.
+   */
+  async atualizarSlide(
+    sessaoId: string,
+    professorId: string,
+    slideAtual: number,
+  ): Promise<EstadoSessaoDto> {
+    await this.assertSessaoDoProfessor(sessaoId, professorId);
+    await this.prisma.sessaoAula.update({
+      where: { id: sessaoId },
+      data: { slideAtual: Math.max(0, Math.trunc(slideAtual)) },
     });
     return this.estadoPorId(sessaoId);
   }
@@ -243,6 +296,7 @@ export class SessaoService {
       aulaTitulo: sessao.aula.titulo,
       blocoAtual,
       estadoAtual: sessao.estadoAtual,
+      slideAtual: sessao.slideAtual,
       blocos,
       participantes: sessao._count.participantes,
     };
@@ -254,8 +308,12 @@ export class SessaoService {
       where: { id: sessaoId },
       select: { status: true, blocoAtualId: true, estadoAtual: true },
     });
+    // Não exige "ativa": o professor pode estar só ensaiando/preparando (QR
+    // ainda não confirmado) e a turma que já entrou deve conseguir acompanhar
+    // os slides mesmo assim — só uma sessão encerrada bloqueia de verdade.
     return (
-      sessao?.status === "ativa" &&
+      sessao !== null &&
+      sessao.status !== "encerrada" &&
       sessao.blocoAtualId === blocoId &&
       sessao.estadoAtual === "liberado"
     );

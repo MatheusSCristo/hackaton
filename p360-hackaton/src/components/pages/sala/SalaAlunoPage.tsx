@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useParams } from "react-router";
 import {
   Badge,
@@ -10,15 +11,31 @@ import {
   Text,
   CustomButton,
 } from "@cursosactive/p360-new-ui";
-import { ExternalLink, LogIn, Vote } from "lucide-react";
+import { ExternalLink, FileText, LogIn, Vote } from "lucide-react";
 
 import SlidesAluno from "./SlidesAluno";
 import { useSessaoLive } from "@/hooks/useSessaoLive";
 import { autorizarCaso } from "@/services/caso";
+import { materialPublicoDownloadUrl } from "@/services/materiais";
 import { entrarSessao, getEstadoPorCodigo } from "@/services/sessao";
 import type { EstadoSessao } from "@/services/sessao";
+import type { Bloco } from "@/services/blocos";
 import { getAccessToken } from "@/utils/accessToken";
 import { irParaLogin } from "@/utils/login";
+
+const TITULO_CONTEUDO: Record<string, string> = {
+  simulado: "Abrir simulado",
+  resumo: "Ver resumo da aula",
+  material_complementar: "Acessar material complementar",
+};
+
+/** Blocos pós-aula que o professor disponibilizou pra turma agora. */
+function conteudosDisponibilizados(blocos: Bloco[]): Bloco[] {
+  return blocos.filter(
+    (b) =>
+      Boolean(TITULO_CONTEUDO[b.tipo]) && Boolean(b.output?.publicadoEm),
+  );
+}
 
 const ANON_KEY = "p360:sala:anonId";
 
@@ -44,35 +61,29 @@ export default function SalaAlunoPage() {
   const anonId = useMemo(obterAnonId, []);
   const live = useSessaoLive(codigo);
 
-  const [estadoRest, setEstadoRest] = useState<EstadoSessao | null>(null);
-  const [erro, setErro] = useState<string | null>(null);
-  const [carregando, setCarregando] = useState(true);
-
-  // Entra na sala uma vez; o socket assume daí em diante. O REST inicial é o
-  // que faz a página funcionar mesmo se o socket falhar.
+  // Entra na sala uma vez (registra presença) — o resto vem do socket.
   useEffect(() => {
     if (!codigo) return;
-    let ativo = true;
-
-    (async () => {
-      try {
-        const estado = await getEstadoPorCodigo(codigo);
-        if (!ativo) return;
-        setEstadoRest(estado);
-        await entrarSessao(codigo, { anonId });
-      } catch {
-        if (ativo) setErro("Não encontramos esta sessão. Confira o código.");
-      } finally {
-        if (ativo) setCarregando(false);
-      }
-    })();
-
-    return () => {
-      ativo = false;
-    };
+    entrarSessao(codigo, { anonId }).catch(() => undefined);
   }, [codigo, anonId]);
 
-  const estado = live.estado ?? estadoRest;
+  // Rede de segurança independente do socket: se por algum motivo a conexão
+  // ao vivo cair/falhar (proxy, rede instável do celular do aluno etc.), o
+  // estado ainda chega sozinho em poucos segundos via polling — sem depender
+  // de um F5 manual, que era exatamente o sintoma reportado.
+  const estadoQuery = useQuery({
+    queryKey: ["sala", codigo, "estado"],
+    queryFn: () => getEstadoPorCodigo(codigo as string),
+    enabled: Boolean(codigo),
+    refetchInterval: 4000,
+    retry: false,
+  });
+
+  const estado = live.estado ?? estadoQuery.data ?? null;
+  const carregando = estadoQuery.isLoading;
+  const erro = estadoQuery.isError
+    ? "Não encontramos esta sessão. Confira o código."
+    : null;
 
   if (carregando) {
     return (
@@ -130,10 +141,45 @@ export default function SalaAlunoPage() {
 
       <Box px={{ base: 4, md: 8 }} py="8">
         <Box maxW="720px" mx="auto">
+          <ConteudosDisponibilizados estado={estado} />
           <AtividadeAtual estado={estado} />
         </Box>
       </Box>
     </Box>
+  );
+}
+
+/**
+ * Barra de atalhos pro conteúdo que o professor disponibilizou (simulado,
+ * resumo, material complementar) — fica sempre visível sobre a área da
+ * atividade, some sozinha assim que o professor recolhe.
+ */
+function ConteudosDisponibilizados({ estado }: { estado: EstadoSessao }) {
+  const disponiveis = conteudosDisponibilizados(estado.blocos);
+  if (disponiveis.length === 0) return null;
+
+  const abrir = (bloco: Bloco) => {
+    const url =
+      bloco.tipo === "simulado"
+        ? `/simulado/${bloco.id}`
+        : materialPublicoDownloadUrl(bloco.id);
+    window.open(url, "_blank", "noopener");
+  };
+
+  return (
+    <Flex gap="2" wrap="wrap" mb="4">
+      {disponiveis.map((bloco) => (
+        <CustomButton
+          key={bloco.id}
+          variant="outline"
+          icon={bloco.tipo === "simulado" ? ExternalLink : FileText}
+          size="sm"
+          onClick={() => abrir(bloco)}
+        >
+          {TITULO_CONTEUDO[bloco.tipo]}
+        </CustomButton>
+      ))}
+    </Flex>
   );
 }
 
@@ -233,7 +279,13 @@ function AtividadeAtual({ estado }: { estado: EstadoSessao }) {
   }
 
   if (bloco.tipo === "slides") {
-    return <SlidesAluno sessaoId={estado.sessaoId} blocoId={bloco.id} />;
+    return (
+      <SlidesAluno
+        sessaoId={estado.sessaoId}
+        blocoId={bloco.id}
+        slideAtual={estado.slideAtual}
+      />
+    );
   }
 
   // Simulado e resumo são pós-aula: não aparecem na sessão ao vivo.

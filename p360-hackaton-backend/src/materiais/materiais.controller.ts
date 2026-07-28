@@ -1,11 +1,12 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
   Param,
   Post,
+  Query,
   Res,
-  UnauthorizedException,
 } from "@nestjs/common";
 import type { Response } from "express";
 import { Type } from "class-transformer";
@@ -44,6 +45,11 @@ class ResponderSimuladoDto {
   @ValidateNested({ each: true })
   @Type(() => RespostaSimuladoItemDto)
   respostas!: RespostaSimuladoItemDto[];
+
+  /** Identidade anônima gerada/persistida no navegador do aluno (sem login). */
+  @IsOptional()
+  @IsString()
+  alunoToken?: string;
 }
 
 class PublicarDto {
@@ -160,21 +166,31 @@ export class MateriaisController {
  * Simulado do aluno — **página própria**, fora da sessão ao vivo.
  *
  * Pós-aula é para fazer em casa, então o acesso não depende de a sessão estar
- * acontecendo: o gate é a publicação pelo professor. Exige login porque a
- * tentativa é individual.
+ * acontecendo: o gate é a publicação pelo professor, não login. Um aluno
+ * deslogado é identificado por um `alunoToken` gerado e persistido no próprio
+ * navegador (a mesma ideia do `anonId` da sala) — é o que vira `usuarioId` na
+ * tentativa salva, o suficiente pra métrica de desempenho e pra impedir
+ * refazer o simulado num F5. Quem estiver logado usa a identidade real (some
+ * o hand-off precisa dela).
  */
 @Controller("simulados/:blocoId")
 export class SimuladoAlunoController {
   constructor(private readonly materiais: MateriaisService) {}
 
+  @Public()
   @Get()
   async obter(
     @Param("blocoId") blocoId: string,
+    @Query("alunoToken") alunoToken: string | undefined,
     @LegacyUser() user: LegacyTokenInfo | undefined,
   ) {
-    return this.materiais.simuladoPorBloco(blocoId, requireAlunoId(user));
+    return this.materiais.simuladoPorBloco(
+      blocoId,
+      resolveAlunoId(user, alunoToken),
+    );
   }
 
+  @Public()
   @Post("responder")
   async responder(
     @Param("blocoId") blocoId: string,
@@ -183,7 +199,7 @@ export class SimuladoAlunoController {
   ) {
     return this.materiais.responderSimulado(
       blocoId,
-      requireAlunoId(user),
+      resolveAlunoId(user, dto.alunoToken),
       nomeDoUsuario(user),
       dto.respostas.map((r) => ({
         questaoIndex: r.questaoIndex,
@@ -219,13 +235,50 @@ export class MateriaisAlunoController {
   // (`SimuladoAlunoController`), acessível fora da sessão ao vivo.
 }
 
+/**
+ * Download de resumo/material complementar para a turma — gate é a
+ * publicação pelo professor (`publicadoEm`), não a sessão ao vivo nem login:
+ * o aluno pode abrir isso depois da aula, de qualquer dispositivo.
+ */
+@Controller("materiais-publicos/:blocoId")
+export class MateriaisPublicosController {
+  constructor(private readonly materiais: MateriaisService) {}
+
+  @Public()
+  @Get("download")
+  async download(
+    @Param("blocoId") blocoId: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    const arquivo = await this.materiais.baixarPublico(blocoId);
+
+    res.setHeader("Content-Type", arquivo.mimeType);
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${arquivo.filename}"`,
+    );
+    res.setHeader("Content-Length", String(arquivo.buffer.length));
+    res.end(arquivo.buffer);
+  }
+}
+
 /** O simulado registra tentativa por aluno — exige identidade real. */
-function requireAlunoId(user: LegacyTokenInfo | undefined): string {
+/**
+ * Identidade real (logado) tem prioridade; sem ela, cai pro token anônimo do
+ * navegador. Prefixado pra nunca colidir com um id numérico legado real.
+ */
+function resolveAlunoId(
+  user: LegacyTokenInfo | undefined,
+  alunoToken: string | undefined,
+): string {
   const id = legacyUsuarioId(user);
-  if (id === undefined) {
-    throw new UnauthorizedException(
-      "Faça login no Paciente 360 para responder o simulado.",
+  if (id !== undefined) return String(id);
+
+  const token = alunoToken?.trim();
+  if (!token) {
+    throw new BadRequestException(
+      "Token do aluno não informado — recarregue a página.",
     );
   }
-  return String(id);
+  return `anon:${token}`;
 }
