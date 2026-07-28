@@ -41,77 +41,149 @@ o prompt de cada tipo de material:
 Todo o acesso a LLM passa por `src/llm/` (Gemini com fallback Anthropic,
 retry + fila de concorrência) — ver `src/llm/llm.module.ts`.
 
-## Como rodar
+## Como rodar (passo a passo, do zero)
+
+Isto aqui é escrito pra não deixar dúvida nenhuma. Siga na ordem.
+
+### Passo 0 — o que precisa estar instalado
+
+- **Node.js 20+** (`node -v` pra conferir)
+- **Docker** + **Docker Compose** (`docker -v` pra conferir) — é onde o
+  Postgres deste projeto roda
+- Só se for usar `run-env.sh` (ambiente completo, com os legados): **nvm**
+  (`nvm -v`) — alguns projetos legados só rodam em Node antigo
+
+Se algum desses comandos der "command not found", instale antes de
+continuar. Sem Docker rodando, o Postgres não sobe e nada mais funciona.
+
+### Passo 1 — criar os arquivos `.env`
+
+Cada projeto tem seu próprio arquivo de configuração. Rode exatamente isto,
+a partir da raiz do repositório:
+
+```bash
+cp p360-hackaton-backend/.env.example p360-hackaton-backend/.env
+cp p360-hackaton/.env.example p360-hackaton/.env
+```
+
+(Se você rodar `./start.sh` sem fazer isso, ele copia sozinho e avisa — mas
+prefira fazer manual pra já abrir o arquivo e conferir as chaves abaixo.)
+
+### Passo 2 — preencher as chaves que importam
+
+Abra `p360-hackaton-backend/.env` num editor e preencha:
+
+| Variável | Pra que serve | Onde conseguir | Obrigatória? |
+|---|---|---|---|
+| `GEMINI_API_KEY` | Gera slides/simulado/resumo/enquete (provider principal, mais barato) | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) | **Sim** — sem nenhuma das duas (Gemini/Anthropic), a geração de conteúdo responde erro 503 |
+| `ANTHROPIC_API_KEY` | Fallback do Gemini + único que faz busca web de verdade (material complementar) | [console.anthropic.com](https://console.anthropic.com) | Recomendada, não obrigatória |
+| `UNSPLASH_ACCESS_KEY` | Fotos reais nos slides | [unsplash.com/developers](https://unsplash.com/developers) | Não — sem ela cai pra Wikimedia/Picsum, só menos bonito |
+| `LEGACY_*`, `AVP_EMPRESAS_URL` | Integração com o P360 legado (login, acervo de casos, matrícula) | Só existe se você tiver acesso ao ecossistema legado | Não — sem isso o app roda, mas rotas que exigem login real falham (não afeta geração de conteúdo) |
+
+**Todo o resto do `.env` do backend pode ficar exatamente como veio no
+`.env.example`** — já está ajustado pra combinar com o `compose.yml` deste
+projeto (porta do Postgres, nomes de banco etc).
+
+O `p360-hackaton/.env` (frontend) **não precisa de nenhum ajuste** pra rodar
+localmente — os valores do `.env.example` já funcionam.
+
+### Passo 3 — subir só este produto
 
 ```bash
 ./start.sh
 ```
 
-Sobe, nessa ordem: Postgres (Docker) → migrations → backend (`:8000`) →
-frontend (porta do `p360-hackaton/.env`, `VITE_PORT`). Espera cada health
-check antes de seguir — não é um sleep cego. Logs em `logs/backend.log` e
-`logs/frontend.log`.
+Isso sobe, nessa ordem, e espera cada um responder antes de ir pro próximo
+(não é um "sleep" cego, é uma checagem de verdade): Postgres (Docker) →
+migrations do banco → backend (`http://localhost:8000`) → frontend
+(`http://localhost:9000`, ou a porta que estiver em `VITE_PORT`).
+
+No final ele imprime as duas URLs. Abra a do frontend no navegador.
 
 ```bash
 ./stop.sh
 ```
 
-Encerra backend e frontend. O Postgres fica de pé de propósito (é
-infraestrutura, não precisa religar toda hora) — derrube com
-`docker compose -f p360-hackaton-backend/compose.yml down` se quiser.
+Derruba backend e frontend. O Postgres fica de pé de propósito (é só
+infraestrutura, não precisa religar toda hora) — se quiser derrubar ele
+também: `docker compose -f p360-hackaton-backend/compose.yml down`.
 
-### Ambiente completo (com os projetos legados)
+**Deu erro?** Veja `logs/backend.log` e `logs/frontend.log` — o erro
+específico está sempre lá. Os motivos mais comuns:
+- Porta 8000 ou a `VITE_PORT` já ocupada por outra coisa → feche o que
+  estiver usando essa porta, ou mude a porta no `.env`.
+- Docker não está rodando → abra o Docker Desktop (ou `sudo systemctl start
+  docker` no Linux) e rode `./start.sh` de novo.
+- `GEMINI_API_KEY`/`ANTHROPIC_API_KEY` vazias → o app sobe normalmente, só a
+  geração de conteúdo (slides/simulado/resumo/enquete) que vai falhar com
+  503. Preencha uma das duas no `.env` do backend e rode `./stop.sh &&
+  ./start.sh`.
 
-O hackaton depende de outros projetos do ecossistema Paciente 360 pra
-funcionar de ponta a ponta: `avp-backend` (API legada — login, matrícula,
-acervo), `avp-empresas` (host onde o hackaton é embarcado via iframe),
-`p360-auth-front` (login do aluno), `p360-monolith-backend` e
-`p360-survey-frontend` (módulo de enquete ao vivo, poll360).
+### Passo 4 (opcional) — ambiente completo, com os projetos legados
+
+Só precisa disso se for testar login real, acervo de casos do legado, ou a
+enquete ao vivo (poll360) de ponta a ponta. Pra só criar aulas e gerar
+material com IA, o Passo 3 já basta.
+
+O hackaton depende de 5 projetos legados do ecossistema Paciente 360:
+`avp-backend` (API legada — login, matrícula, acervo), `avp-empresas` (host
+onde o hackaton é embarcado via iframe), `p360-auth-front` (login do
+aluno), `p360-monolith-backend` e `p360-survey-frontend` (módulo de
+enquete ao vivo, poll360).
+
+**Antes de rodar**, mapeie o host de login no `/etc/hosts` (uma vez só, pra
+sempre — o `p360-auth-front` só funciona nesse endereço):
+
+```bash
+echo '127.0.0.1 auth.paciente360.local' | sudo tee -a /etc/hosts
+```
+
+Depois:
 
 ```bash
 ./run-env.sh
 ```
 
-Sobe `./start.sh` **e** os 5 projetos acima, cada um como processo Node
-comum (sem Docker, sem nodemon/watch nos legados — só este produto roda em
-modo watch, já que é nele que você está mexendo). Idempotente: se uma porta
-já está ocupada, pula em vez de subir de novo (evita processo duplicado).
+Isso roda `./start.sh` **e** sobe os 5 projetos legados, cada um como
+processo comum (sem Docker). É idempotente: se uma porta já estiver
+ocupada, ele pula em vez de duplicar o processo — então pode rodar de novo
+sem medo se algo já estiver no ar.
 
-Por padrão espera os projetos legados em `~/workspace`. Pra apontar pra
-outro lugar:
+Por padrão ele procura os 5 projetos legados em `~/workspace`. Se estiverem
+em outro lugar:
 
 ```bash
-WORKSPACE_DIR=/outro/caminho ./run-env.sh
+WORKSPACE_DIR=/caminho/onde/estao/os/projetos ./run-env.sh
 ```
+
+Se uma pasta não existir em `WORKSPACE_DIR`, o script só avisa e pula
+aquele projeto — não trava o resto.
 
 ```bash
 ./stop-env.sh
 ```
 
-Encerra tudo (este projeto + os 5 legados). Postgres/Redis do sistema
-continuam de pé — são serviços do SO, não deste script.
+Derruba tudo (este projeto + os 5 legados). Postgres/Redis do **sistema**
+(fora do Docker deste projeto) continuam de pé — são serviços do SO, esse
+script não mexe neles.
 
-⚠️ **`avp-backend` precisa de Node 10-12** (`engines` no `package.json`) — no
-Node 20 do sistema o driver do Postgres trava em timeout de 5s em toda
-consulta (bug real do driver antigo, não é rede/DB). O `run-env.sh` já sobe
-via `nvm use 10` automaticamente; se for rodar esse projeto manualmente,
-faça o mesmo. `avp-empresas` também exige Node 10 (app AngularJS/gulp
-antiga) — mesma lógica.
+⚠️ **`avp-backend` e `avp-empresas` só rodam em Node 10-12** — em Node 20 o
+driver antigo do Postgres trava (bug real do driver, não é rede/DB). O
+`run-env.sh` já troca de versão sozinho via `nvm use 10` antes de subir
+esses dois; só funciona se `nvm` estiver instalado.
 
-### Variáveis de ambiente
+### Perguntas rápidas (resolve sem precisar entender o projeto)
 
-Cada projeto tem seu `.env`/`.env.example` próprio. As chaves mais
-importantes (já preenchidas nos `.env` deste ambiente):
-
-- `GEMINI_API_KEY` / `ANTHROPIC_API_KEY` (backend) — providers de LLM,
-  Gemini primário (mais barato) com fallback automático pra Anthropic.
-- `UNSPLASH_ACCESS_KEY` (backend) — banco de imagens reais dos slides.
-- `LEGACY_*` / `AVP_EMPRESAS_URL` (backend) — integração com o P360 legado
-  (auth, acervo de casos, matrícula). Sem isso, o app roda mas as rotas
-  autenticadas exigem um `X-Access-Token` válido do host legado.
-- `VITE_PORT`, `VITE_HACKATON_API_URL` (frontend) — porta do dev server e
-  base do backend (vazio = usa o proxy do `vite.config.ts` pra
-  `localhost:8000`).
+- **"Rodei `./start.sh` e nada abriu no navegador"** → o script imprime a
+  URL no final do log; se não chegou lá, o erro está em `logs/backend.log`
+  ou `logs/frontend.log`.
+- **"Erro 503 ao criar material"** → falta `GEMINI_API_KEY` ou
+  `ANTHROPIC_API_KEY` no `.env` do backend.
+- **"p360-auth-front não sobe/trava no `run-env.sh`"** → falta o
+  `/etc/hosts` do Passo 4.
+- **"Preciso rodar num computador novo do zero"** → Passo 0 → Passo 1 →
+  Passo 2 → Passo 3 (ou Passo 4 se precisar dos legados). Nessa ordem, sem
+  pular nenhum.
 
 ⚠️ **Nota sobre a chave Anthropic**: se ela estiver sem crédito, o material
 complementar ainda é gerado, mas cai para o Gemini (sem pesquisa web real) —

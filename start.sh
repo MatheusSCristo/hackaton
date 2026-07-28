@@ -19,6 +19,28 @@ touch "$PID_FILE"
 
 log() { echo "[start.sh] $1"; }
 
+# Sem isso, um `.env` ausente faz o script inteiro morrer num `grep`/comando
+# que lê o arquivo (erro de bash confuso, tipo "No such file or directory",
+# sem explicar o que fazer). Copia do `.env.example` automaticamente na
+# primeira vez — o app já roda em modo degradado sem as chaves de LLM
+# preenchidas (ver README), então isso nunca deveria travar o start.
+garantir_env() {
+  local dir="$1" nome="$2"
+  if [ -f "$dir/.env" ]; then return; fi
+  if [ -f "$dir/.env.example" ]; then
+    cp "$dir/.env.example" "$dir/.env"
+    log "AVISO: '$dir/.env' não existia — copiado de .env.example."
+    log "       Preencha as chaves (GEMINI_API_KEY etc — ver README.md) em '$dir/.env' e rode de novo se quiser tudo funcionando."
+  else
+    log "ERRO: nem '$dir/.env' nem '$dir/.env.example' existem — não dá pra continuar sem isso."
+    log "      Confira se a pasta '$nome' ($dir) está certa."
+    exit 1
+  fi
+}
+
+garantir_env "$BACKEND_DIR" "backend"
+garantir_env "$FRONTEND_DIR" "frontend"
+
 porta_aberta() {
   local porta="$1"
   (exec 3<>"/dev/tcp/127.0.0.1/$porta") 2>/dev/null

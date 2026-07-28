@@ -107,7 +107,13 @@ subir_em_background "p360-monolith-backend" "$WORKSPACE_DIR/p360-monolith-backen
 # ---------------------------------------------------------- p360-auth-front
 # Login (quando o aluno abre um caso/simulado por link avulso). Repare que o
 # host é auth.paciente360.local (fixo no vite.config.ts, não localhost) — já
-# precisa estar mapeado em /etc/hosts pra 127.0.0.1.
+# precisa estar mapeado em /etc/hosts pra 127.0.0.1. Sem isso o serviço até
+# sobe, mas "esperar_porta" nunca vai resolver o host — o aviso de timeout
+# sozinho não deixa isso óbvio, por isso o aviso explícito abaixo.
+if ! grep -qE '(^|[[:space:]])auth\.paciente360\.local([[:space:]]|$)' /etc/hosts 2>/dev/null; then
+  log "AVISO: 'auth.paciente360.local' não está em /etc/hosts — p360-auth-front vai parecer travado sem isso."
+  log "       Rode: echo '127.0.0.1 auth.paciente360.local' | sudo tee -a /etc/hosts"
+fi
 log "=== p360-auth-front ==="
 subir_em_background "p360-auth-front" "$WORKSPACE_DIR/p360-auth-front" "auth.paciente360.local" "4000" \
   npm run dev
